@@ -20,13 +20,26 @@ mkdir -p "$OUTDIR"
 PLATFORMS=(
   "linux/amd64"
   "linux/arm64"
+  "linux/386"
+  "linux/arm"
+  "linux/ppc64le"
+  "linux/s390x"
   "darwin/amd64"
   "darwin/arm64"
+  "windows/amd64"
+  "windows/arm64"
+  "windows/386"
+  "freebsd/amd64"
+  "freebsd/arm64"
 )
 
 for PLATFORM in "${PLATFORMS[@]}"; do
   IFS="/" read -r GOOS GOARCH <<< "$PLATFORM"
-  OUTPUT_NAME="$OUTDIR/${tool_name}-${VERSION}.${GOOS}-${GOARCH}"
+  EXT=""
+  if [ "$GOOS" = "windows" ]; then
+    EXT=".exe"
+  fi
+  OUTPUT_NAME="$OUTDIR/${tool_name}-${VERSION}.${GOOS}-${GOARCH}${EXT}"
   echo "Building for $GOOS/$GOARCH -> $OUTPUT_NAME"
   env GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X 'main.Version=$VERSION'" -o "$OUTPUT_NAME" main.go
 done
