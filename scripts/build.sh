@@ -41,7 +41,7 @@ for PLATFORM in "${PLATFORMS[@]}"; do
   fi
   OUTPUT_NAME="$OUTDIR/${tool_name}-${VERSION}.${GOOS}-${GOARCH}${EXT}"
   echo "Building for $GOOS/$GOARCH -> $OUTPUT_NAME"
-  env GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X 'main.Version=$VERSION'" -o "$OUTPUT_NAME" main.go
+  env GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X 'main.Version=$VERSION'" -o "$OUTPUT_NAME" *.go
 done
 
 echo "All binaries built in $OUTDIR/"
