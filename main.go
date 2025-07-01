@@ -37,7 +37,6 @@ var (
 	minValidUID           = flag.Int("min-uid", 1000, "Minimum UID to monitor (ignore system users)")
 	includeShellUsersOnly = flag.Bool("include-shell-users-only", false, "Only consider users with valid shell (e.g. bash/sh)")
 	sshdConfigPath        = flag.String("sshd-config-path", "/etc/ssh/sshd_config", "Path to sshd_config file")
-	exportSyslog          = flag.Bool("export-syslog", false, "Enable exporting metrics summary to syslog")
 )
 
 var (
@@ -497,10 +496,6 @@ func main() {
 	go monitorFileIntegrity()     // File Integrity Monitoring
 	go monitorSFTPCommandAudit()  // SFTP Command Auditing
 	go monitorHistoricalMetrics() // Historical Metrics/Trends (placeholder)
-
-	if *exportSyslog {
-		go startExportToOtherBackends() // Export to Other Backends (syslog)
-	}
 
 	// Start HTTP server for Prometheus metrics
 	http.Handle("/metrics", promhttp.Handler())

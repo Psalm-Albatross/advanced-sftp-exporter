@@ -3,7 +3,4 @@
 
 package main
 
-// Stub for platforms without syslog support
-func startExportToOtherBackends() {
-	// No-op on unsupported platforms
-}
+// No code to run on unsupported platforms
