@@ -5,6 +5,8 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,16 +15,33 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
+	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"advanced-sftp-exporter/internal/anomaly"
+	"advanced-sftp-exporter/internal/cache"
+	"advanced-sftp-exporter/internal/cardinality"
+	"advanced-sftp-exporter/internal/config"
+	"advanced-sftp-exporter/internal/connection"
+	"advanced-sftp-exporter/internal/latency"
+	loggerPkg "advanced-sftp-exporter/internal/logger"
+	"advanced-sftp-exporter/internal/metrics"
+	"advanced-sftp-exporter/internal/monitor"
+	"advanced-sftp-exporter/internal/monitors"
+	"advanced-sftp-exporter/internal/poller"
+	"advanced-sftp-exporter/internal/protocol"
+	"advanced-sftp-exporter/internal/quota"
+	"advanced-sftp-exporter/internal/session"
+	"advanced-sftp-exporter/internal/validation"
 )
 
 const (
@@ -30,13 +49,39 @@ const (
 	anomalyTransferThreshold = 1024 * 1024 * 1024 // 1 GB
 )
 
+// Build-time variables (set via -ldflags during build)
+var (
+	Version   = "1.4.0-phase5"
+	BuildDate = "unknown"
+	BuildHash = "unknown"
+	GoVersion = "unknown"
+)
+
 var enableStrictMode = flag.Bool("strict-mode", false, "Enable GDPR-safe mode (anonymize IPs, usernames)")
+var showVersion = flag.Bool("version", false, "Show version and build information")
+
+// Security flags for metrics endpoint
+var (
+	webBearerToken = flag.String("web.bearer-token", "", "Bearer token for metrics endpoint authentication (optional)")
+	webEnableTLS   = flag.Bool("web.enable-tls", false, "Enable TLS for metrics endpoint")
+	webTLSCert     = flag.String("web.tls-cert", "", "Path to TLS certificate file (required if enable-tls is true)")
+	webTLSKey      = flag.String("web.tls-key", "", "Path to TLS private key file (required if enable-tls is true)")
+	webRateLimit   = flag.Int("web.rate-limit", 0, "Requests per second limit (0 = unlimited)")
+)
 
 var (
 	memoryThresholdBytes  = flag.Int64("memory-threshold", 500*1024*1024, "Memory usage threshold in bytes for alerting") // default: 500MB
 	minValidUID           = flag.Int("min-uid", 1000, "Minimum UID to monitor (ignore system users)")
 	includeShellUsersOnly = flag.Bool("include-shell-users-only", false, "Only consider users with valid shell (e.g. bash/sh)")
 	sshdConfigPath        = flag.String("sshd-config-path", "/etc/ssh/sshd_config", "Path to sshd_config file")
+	commandTimeout        = flag.Duration("command-timeout", 5*time.Second, "Timeout for external commands")
+)
+
+// Performance tuning flags (Phase 2)
+var (
+	maxMonitorGoroutines  = flag.Int("max-monitor-goroutines", 10, "Maximum concurrent monitor goroutines")
+	enableAdaptivePolling = flag.Bool("enable-adaptive-polling", true, "Enable adaptive polling backoff for idle monitors")
+	pollingBackoffMax     = flag.Duration("polling-backoff-max", 60*time.Second, "Maximum polling interval when backed off")
 )
 
 var (
@@ -55,6 +100,25 @@ var (
 
 	// Logging
 	logger *log.Logger
+
+	// Phase 2: Performance optimization components
+	pollerManager      *poller.PollerManager
+	commandCache       *cache.CommandCache
+	cardinalityLimiter *cardinality.CardinalityLimiter
+
+	// Phase 3: Rich metrics & enhanced visibility components
+	connectionStore  *connection.ConnectionStore
+	protocolDetector *protocol.ProtocolDetector
+	anomalyScorer    *anomaly.AnomalyScorer
+	quotaManager     *quota.QuotaManager
+	bandwidthTracker *quota.BandwidthTracker
+	latencyTracker   *latency.LatencyTracker
+
+	// Phase 4: Modular architecture components
+	appConfig       *config.Config
+	appLogger       *loggerPkg.Logger
+	healthMetrics   *monitor.HealthMetrics
+	monitorRegistry *monitor.Registry
 
 	// Prometheus metrics
 
@@ -371,9 +435,161 @@ var (
 		[]string{"user"},
 	)
 
-	// In-memory session state for session duration, idle detection etc.
-	sessionState = make(map[string]map[string]time.Time) // map[user]map[sessionID]startTime
-	sessionMutex sync.Mutex
+	// Phase 2: Performance Optimization Metrics
+	exporterMetricCardinality = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "sftp_exporter_metric_cardinality",
+			Help: "Current cardinality of metric labels (users, IPs, file types, sessions)",
+		},
+		[]string{"metric_type"},
+	)
+
+	exporterCacheHitRate = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "sftp_exporter_cache_hit_rate",
+			Help: "Cache hit rate for command caching (0-1)",
+		},
+		[]string{"cache_type"},
+	)
+
+	exporterPollerStats = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "sftp_exporter_poller_runs_total",
+			Help: "Total number of runs for each monitor poller",
+		},
+		[]string{"poller_name"},
+	)
+
+	exporterPollerInterval = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "sftp_exporter_poller_interval_seconds",
+			Help: "Current polling interval for each monitor (adaptive polling)",
+		},
+		[]string{"poller_name"},
+	)
+
+	exporterPollerErrors = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "sftp_exporter_poller_errors_total",
+			Help: "Total number of errors for each monitor poller",
+		},
+		[]string{"poller_name"},
+	)
+
+	// Phase 3: Rich Metrics & Enhanced Visibility (Connection-level)
+	connectionActiveTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "sftp_connection_active_total",
+			Help: "Current active SFTP connections",
+		},
+		[]string{"user", "remote_ip"},
+	)
+
+	connectionDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "sftp_connection_duration_seconds",
+			Help:    "SFTP connection duration histogram",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1s to ~4096s
+		},
+		[]string{"user", "reason"},
+	)
+
+	connectionBytesTransferred = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "sftp_connection_bytes_transferred_total",
+			Help: "Total bytes transferred per connection",
+		},
+		[]string{"user", "direction"},
+	)
+
+	// Phase 3: Protocol Intelligence
+	protocolVersionInfo = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "sftp_protocol_version_info",
+			Help: "SFTP protocol version distribution (2 or 3)",
+		},
+		[]string{"version"},
+	)
+
+	protocolRenegotiationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "sftp_protocol_renegotiations_total",
+			Help: "SSH renegotiation count per user",
+		},
+		[]string{"user"},
+	)
+
+	protocolKeepaliveReceived = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "sftp_protocol_keepalive_received_total",
+			Help: "SSH keepalive frequency per user",
+		},
+		[]string{"user"},
+	)
+
+	// Phase 3: Advanced Anomaly Detection
+	anomalyDetectionScore = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "sftp_anomaly_detection_score",
+			Help: "User anomaly score (0-1, higher = more anomalous)",
+		},
+		[]string{"user", "score_type"},
+	)
+
+	userRiskLevel = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "sftp_user_risk_level",
+			Help: "User risk level: 0=low, 1=medium, 2=high, 3=critical",
+		},
+		[]string{"user"},
+	)
+
+	// Phase 3: Bandwidth & Quota Tracking
+	userBandwidthBps = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "sftp_user_bandwidth_bps",
+			Help: "Current bandwidth usage in bits per second",
+		},
+		[]string{"user", "direction"},
+	)
+
+	userQuotaUsagePercent = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "sftp_user_quota_usage_percent",
+			Help: "User storage quota usage as percentage",
+		},
+		[]string{"user"},
+	)
+
+	quotaExceededEvents = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "sftp_quota_exceeded_events_total",
+			Help: "Number of times a user exceeded their quota",
+		},
+		[]string{"user"},
+	)
+
+	// Phase 3: File Operation Latency
+	fileOperationLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "sftp_file_operation_latency_seconds",
+			Help:    "File operation latency histogram",
+			Buckets: prometheus.ExponentialBuckets(0.001, 2, 12), // 1ms to ~4s
+		},
+		[]string{"user", "operation"},
+	)
+
+	fileSizeDistribution = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "sftp_file_size_distribution_bytes",
+			Help:    "File size distribution in bytes",
+			Buckets: prometheus.ExponentialBuckets(100, 10, 7), // 100B to 100GB
+		},
+		[]string{"user"},
+	)
+
+	// Thread-safe session store for session duration, idle detection etc.
+	sessionStore *session.SessionStore
 )
 
 func init() {
@@ -415,6 +631,33 @@ func init() {
 	)
 	prometheus.MustRegister(memoryThresholdExceeded, virtualMemoryUsage)
 
+	// Phase 2 Performance Metrics
+	prometheus.MustRegister(exporterMetricCardinality)
+	prometheus.MustRegister(exporterCacheHitRate)
+	prometheus.MustRegister(exporterPollerStats)
+	prometheus.MustRegister(exporterPollerInterval)
+	prometheus.MustRegister(exporterPollerErrors)
+
+	// Phase 3 Rich Metrics
+	prometheus.MustRegister(connectionActiveTotal)
+	prometheus.MustRegister(connectionDurationSeconds)
+	prometheus.MustRegister(connectionBytesTransferred)
+	prometheus.MustRegister(protocolVersionInfo)
+	prometheus.MustRegister(protocolRenegotiationsTotal)
+	prometheus.MustRegister(protocolKeepaliveReceived)
+	prometheus.MustRegister(anomalyDetectionScore)
+	prometheus.MustRegister(userRiskLevel)
+	prometheus.MustRegister(userBandwidthBps)
+	prometheus.MustRegister(userQuotaUsagePercent)
+	prometheus.MustRegister(quotaExceededEvents)
+	prometheus.MustRegister(fileOperationLatency)
+	prometheus.MustRegister(fileSizeDistribution)
+
+	// Phase 5 Enterprise Metrics (57 new metrics across 8 categories)
+	if err := RegisterNewMetrics(); err != nil {
+		logger.Printf("Warning: Failed to register Phase 5 metrics: %v", err)
+	}
+
 	out, err := exec.Command("getconf", "CLK_TCK").Output()
 	if err != nil {
 		logger.Printf("Warning: fallback to default CLK_TCK=100: %v", err)
@@ -443,20 +686,81 @@ func main() {
 	userRegexStr := flag.String("user-regex", "", "Regex to filter usernames")
 	flag.Parse()
 
+	// Handle -version flag early
+	if *showVersion {
+		fmt.Printf("advanced-sftp-exporter %s\n", Version)
+		fmt.Printf("  Build Date: %s\n", BuildDate)
+		fmt.Printf("  Build Hash: %s\n", BuildHash)
+		fmt.Printf("  Go Version: %s\n", GoVersion)
+		os.Exit(0)
+	}
+
+	// Init logger first
+	logger = log.New(os.Stdout, "sftp-exporter: ", log.LstdFlags|log.Lmicroseconds)
+
+	// Phase 4: Initialize modular architecture
+	appConfig = config.NewDefaultConfig()
+	if err := appConfig.LoadFromEnv(); err != nil {
+		logger.Fatalf("Failed to load config from environment: %v", err)
+	}
+
+	// Initialize structured logger
+	var logLevel loggerPkg.Level = loggerPkg.InfoLevel
+	switch strings.ToUpper(appConfig.Logging.Level) {
+	case "DEBUG":
+		logLevel = loggerPkg.DebugLevel
+	case "WARN":
+		logLevel = loggerPkg.WarnLevel
+	case "ERROR":
+		logLevel = loggerPkg.ErrorLevel
+	}
+	appLogger = loggerPkg.NewLogger(os.Stdout, logLevel, appConfig.Logging.JSONMode)
+
+	// Initialize health metrics
+	healthMetrics = monitor.NewHealthMetrics()
+
+	// Initialize monitor registry
+	monitorRegistry = monitor.NewRegistry()
+
+	// Register built-in monitors
+	if err := monitorRegistry.Register(monitors.NewAuthLogMonitor()); err != nil {
+		appLogger.Error("Failed to register auth log monitor", err, nil)
+	}
+	if err := monitorRegistry.Register(monitors.NewFileTransferMonitor()); err != nil {
+		appLogger.Error("Failed to register file transfer monitor", err, nil)
+	}
+
+	appLogger.Info("Phase 4 modular architecture initialized", map[string]interface{}{
+		"monitors": len(monitorRegistry.GetAllMonitors()),
+		"log_level": appConfig.Logging.Level,
+	})
+
+	// Validate configuration early (SECURITY)
+	if err := validateConfiguration(); err != nil {
+		logger.Fatalf("Configuration validation failed: %v", err)
+	}
+
 	if *enableStrictMode {
 		logger.Println("🔐 STRICT MODE ENABLED: GDPR-safe mode activated.")
+	}
+
+	if *webEnableTLS {
+		logger.Println("🔒 TLS ENABLED: Metrics endpoint will use HTTPS")
+	}
+
+	if *webBearerToken != "" {
+		logger.Println("🔐 BEARER TOKEN ENABLED: Metrics endpoint requires authentication")
 	}
 
 	if *userRegexStr != "" {
 		r, err := regexp.Compile(*userRegexStr)
 		if err != nil {
-			log.Fatalf("Invalid user regex: %v", err)
+			logger.Fatalf("Invalid user regex: %v", err)
 		}
 		userRegex = r
 	}
 
-	// To support regex filtering
-
+	// Validate and compile home regex
 	if homeRegex != "" {
 		var err error
 		compiledHomeRegex, err = regexp.Compile(homeRegex)
@@ -465,8 +769,40 @@ func main() {
 		}
 	}
 
-	// Init logger
-	logger = log.New(os.Stdout, "sftp-exporter: ", log.LstdFlags|log.Lmicroseconds)
+	// Initialize thread-safe session store (TTL: 1 hour)
+	sessionStore = session.NewSessionStore(1 * time.Hour)
+
+	// Initialize Phase 2 performance components
+	logger.Println("Initializing Phase 2 performance optimization components...")
+
+	// Initialize PollerManager for adaptive polling and goroutine pooling
+	pollerCfg := poller.DefaultConfig()
+	pollerCfg.MaxWorkers = *maxMonitorGoroutines
+	pollerCfg.AdaptiveBackoff = *enableAdaptivePolling
+	pollerCfg.MaxBackoffInterval = *pollingBackoffMax
+	pollerManager = poller.NewPollerManager(pollerCfg, logger)
+
+	// Initialize command cache (5 second TTL for ps/lsof, 30s for user lists)
+	commandCache = cache.NewCommandCache()
+
+	// Initialize cardinality limiter
+	cardCfg := cardinality.DefaultLimiterConfig()
+	cardinalityLimiter = cardinality.NewCardinalityLimiter(cardCfg, logger)
+
+	logger.Printf("Phase 2 initialized: max_workers=%d, adaptive_polling=%v, polling_backoff_max=%v",
+		*maxMonitorGoroutines, *enableAdaptivePolling, *pollingBackoffMax)
+
+	// Initialize Phase 3 rich metrics components
+	logger.Println("Initializing Phase 3 rich metrics & enhanced visibility components...")
+
+	connectionStore = connection.NewConnectionStore(1 * time.Hour)
+	protocolDetector = protocol.NewProtocolDetector()
+	anomalyScorer = anomaly.NewAnomalyScorer()
+	quotaManager = quota.NewQuotaManager()
+	bandwidthTracker = quota.NewBandwidthTracker()
+	latencyTracker = latency.NewLatencyTracker(10000)
+
+	logger.Println("Phase 3 initialized: connection tracking, protocol detection, anomaly scoring, quota management, latency tracking")
 
 	logger.Println("Starting advanced-sftp-exporter...")
 	logger.Printf("Auth log: %s, Home base: %s, Upload marker: %s, Download marker: %s",
@@ -482,25 +818,117 @@ func main() {
 		}
 	}()
 
-	// Start background routines (next parts...)
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle OS signals for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
+	// Start background routines
 	go monitorAuthLog()
 	go monitorFileTransfers()
 	go monitorOpenFilesCPUAndMem()
 	go monitorDiskUsage()
 	go monitorIdleSessions()
-	go monitorSFTPUp() // Check if Linux server running or used as SFTP server
+	go monitorSFTPUp()
 	go pollOpenFiles()
 	go pollMemoryUsage()
 	go pollCPUUsage()
-	go monitorUserCommands()      // Real-time login user & command monitoring
-	go monitorFileIntegrity()     // File Integrity Monitoring
-	go monitorSFTPCommandAudit()  // SFTP Command Auditing
-	go monitorHistoricalMetrics() // Historical Metrics/Trends (placeholder)
+	go monitorUserCommands()
+	go monitorFileIntegrity()
+	go monitorSFTPCommandAudit()
+	go monitorHistoricalMetrics()
 
-	// Start HTTP server for Prometheus metrics
-	http.Handle("/metrics", promhttp.Handler())
-	logger.Printf("Listening on %s", listenAddress)
-	log.Fatal(http.ListenAndServe(listenAddress, nil))
+	// Phase 2: Periodic metrics update for performance monitoring
+	go func() {
+		ticker := time.NewTicker(10 * time.Second) // Update Phase 2 metrics every 10s
+		defer ticker.Stop()
+		for range ticker.C {
+			updatePhase2Metrics()
+		}
+	}()
+
+	// Phase 3: Periodic metrics update for rich metrics
+	go func() {
+		ticker := time.NewTicker(5 * time.Second) // Update Phase 3 metrics every 5s
+		defer ticker.Stop()
+		for range ticker.C {
+			updatePhase3Metrics()
+		}
+	}()
+
+	// Setup secure metrics handler
+	baseHandler := promhttp.Handler()
+
+	// Wrap with security features
+	securityCfg := metrics.EndpointSecurityConfig{
+		BearerToken:  *webBearerToken,
+		RateLimit:    *webRateLimit,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+	secureHandler := metrics.NewSecureMetricsHandler(baseHandler, securityCfg)
+
+	// Add request logging
+	finalHandler := metrics.NewRequestLogger(secureHandler, *enableStrictMode)
+
+	// Setup HTTP server with security-aware timeouts
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", finalHandler)
+	mux.HandleFunc("/health", handleHealth)
+	mux.HandleFunc("/readiness", handleReadiness)
+	mux.HandleFunc("/diagnostics", handleDiagnostics) // Phase 4
+
+	server := &http.Server{
+		Addr:         listenAddress,
+		Handler:      mux,
+		ReadTimeout:  securityCfg.ReadTimeout,
+		WriteTimeout: securityCfg.WriteTimeout,
+	}
+
+	// Start server in goroutine
+	go func() {
+		logger.Printf("Listening on %s", listenAddress)
+		var err error
+		if *webEnableTLS {
+			err = server.ListenAndServeTLS(*webTLSCert, *webTLSKey)
+		} else {
+			err = server.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
+			logger.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	// Wait for signal
+	<-sigChan
+	logger.Println("Shutdown signal received, gracefully shutting down...")
+
+	// Shutdown PollerManager (Phase 2)
+	if pollerManager != nil {
+		if err := pollerManager.Shutdown(); err != nil {
+			logger.Printf("PollerManager shutdown error: %v", err)
+		}
+	}
+
+	// Phase 3 components cleanup (mostly automatic, but explicit here)
+	logger.Println("Cleaning up Phase 3 components...")
+	if connectionStore != nil {
+		removed := connectionStore.CleanupExpired()
+		logger.Printf("Cleaned up %d expired connections", removed)
+	}
+
+	// Graceful shutdown with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer shutdownCancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Printf("Server shutdown error: %v", err)
+	}
+
+	logger.Println("Server stopped")
 }
 
 // func monitorSFTPUp() {
@@ -796,14 +1224,15 @@ func monitorAuthLog() {
 				logger.Printf("⚠️ Shell access detected: user=%s line=%s", username, line)
 			}
 
-			sessionMutex.Lock()
-			if _, ok := sessionState[username]; !ok {
-				sessionState[username] = make(map[string]time.Time)
-			}
+			// Add session to thread-safe store
 			sessionID := fmt.Sprintf("%d", sessionCounter)
 			sessionCounter++
-			sessionState[username][sessionID] = time.Now()
-			sessionMutex.Unlock()
+			sessionStore.Add(username, sessionID, session.SessionInfo{
+				StartTime: time.Now(),
+				SourceIP:  ip,
+				Method:    method,
+				Metadata:  make(map[string]string),
+			})
 
 			userSessions.WithLabelValues(username).Inc()
 			loginEvents.WithLabelValues(username).Inc()
@@ -855,31 +1284,16 @@ func monitorAuthLog() {
 
 			logger.Printf("Session closed: user=%s", user)
 
-			sessionMutex.Lock()
 			userSessions.WithLabelValues(user).Dec()
 
-			if len(sessionState[user]) > 0 {
-				var oldestSession string
-				var oldestTime time.Time
-				first := true
-				for sid, startTime := range sessionState[user] {
-					if first || startTime.Before(oldestTime) {
-						oldestSession = sid
-						oldestTime = startTime
-						first = false
-					}
-				}
+			// Get oldest session from thread-safe store
+			if oldestID, oldestInfo, exists := sessionStore.GetOldestSession(user); exists {
+				duration := time.Since(oldestInfo.StartTime).Seconds()
+				sessionDuration.WithLabelValues(user).Observe(duration)
+				sessionStore.Remove(user, oldestID)
 
-				if oldestSession != "" {
-					duration := time.Since(oldestTime).Seconds()
-					sessionDuration.WithLabelValues(user).Observe(duration)
-					delete(sessionState[user], oldestSession)
-
-					logger.Printf("Session duration recorded: user=%s duration=%.2fs", user, duration)
-				}
+				logger.Printf("Session duration recorded: user=%s duration=%.2fs", user, duration)
 			}
-
-			sessionMutex.Unlock()
 		}
 	}
 }
@@ -1418,28 +1832,29 @@ func monitorIdleSessions() {
 	for {
 		<-ticker.C
 
-		sessionMutex.Lock()
+		// Get all users from thread-safe store
+		users := sessionStore.GetAllUsers()
 
-		for user, sessions := range sessionState {
+		for _, user := range users {
 			// Optional: skip users not matching regex
 			if !isUserMonitored(user) {
 				continue
 			}
 
+			// Get all sessions for this user
+			sessions := sessionStore.GetUserSessions(user)
 			idleCount := 0
 
-			for sessionID, startTime := range sessions {
-				elapsed := time.Since(startTime)
+			for _, sessionInfo := range sessions {
+				elapsed := time.Since(sessionInfo.StartTime)
 				if elapsed > idleThreshold {
 					idleCount++
-					logger.Printf("Idle session detected: user=%s sessionID=%s idleFor=%.2f sec", user, sessionID, elapsed.Seconds())
+					logger.Printf("Idle session detected: user=%s idleFor=%.2f sec", user, elapsed.Seconds())
 				}
 			}
 
 			idleSessions.WithLabelValues(user).Set(float64(idleCount))
 		}
-
-		sessionMutex.Unlock()
 	}
 }
 
@@ -1447,7 +1862,6 @@ func monitorIdleSessions() {
 func pollOpenFiles() {
 	log.Printf("INFO: Starting open files polling")
 	for {
-		sessionMutex.Lock()
 		out, err := runCommand("lsof", "-n", "+c", "0")
 		if err == nil {
 			log.Printf("DEBUG: Parsing open files")
@@ -1455,7 +1869,6 @@ func pollOpenFiles() {
 		} else {
 			log.Printf("ERROR: Failed to run lsof: %v", err)
 		}
-		sessionMutex.Unlock()
 		time.Sleep(10 * time.Second)
 	}
 }
@@ -1658,4 +2071,264 @@ func getUsernameFromUid(uid string) string {
 func isNumeric(s string) bool {
 	_, err := strconv.Atoi(s)
 	return err == nil
+}
+
+// validateConfiguration validates all configuration parameters (SECURITY)
+func validateConfiguration() error {
+	validator := validation.DefaultValidator()
+
+	// Validate all path parameters
+	if err := validator.ValidateAuthLogPath(authLogPath); err != nil {
+		return fmt.Errorf("invalid auth-log: %w", err)
+	}
+
+	if err := validator.ValidateHomeBasePath(homeBasePath); err != nil {
+		return fmt.Errorf("invalid home-base: %w", err)
+	}
+
+	if err := validator.ValidateSSHDConfigPath(*sshdConfigPath); err != nil {
+		return fmt.Errorf("invalid sshd-config-path: %w", err)
+	}
+
+	// Validate numeric parameters
+	if err := validator.ValidateMemoryThreshold(*memoryThresholdBytes); err != nil {
+		return fmt.Errorf("invalid memory-threshold: %w", err)
+	}
+
+	if err := validator.ValidateIdleThreshold(idleThresholdSec); err != nil {
+		return fmt.Errorf("invalid idle-threshold-seconds: %w", err)
+	}
+
+	if err := validator.ValidateMinUID(*minValidUID); err != nil {
+		return fmt.Errorf("invalid min-uid: %w", err)
+	}
+
+	// Validate regex patterns
+	if homeRegex != "" {
+		if err := validator.ValidateRegexPattern(homeRegex); err != nil {
+			return fmt.Errorf("invalid home-regex: %w", err)
+		}
+	}
+
+	// Validate glob patterns
+	if err := validator.ValidateGlobPattern(homeGlob); err != nil {
+		return fmt.Errorf("invalid home-glob: %w", err)
+	}
+
+	// Validate network parameters
+	if err := validator.ValidateListenAddress(listenAddress); err != nil {
+		return fmt.Errorf("invalid web.listen-address: %w", err)
+	}
+
+	// Validate bearer token if provided
+	if *webBearerToken != "" {
+		if err := validator.ValidateBearerToken(*webBearerToken); err != nil {
+			return fmt.Errorf("invalid web.bearer-token: %w", err)
+		}
+	}
+
+	// Validate TLS configuration
+	if *webEnableTLS {
+		if *webTLSCert == "" || *webTLSKey == "" {
+			return errors.New("TLS enabled but certificate or key path not provided")
+		}
+		if err := validator.ValidateTLSPaths(*webTLSCert, *webTLSKey); err != nil {
+			return fmt.Errorf("invalid TLS configuration: %w", err)
+		}
+	}
+
+	// Validate command timeout
+	if *commandTimeout <= 0 {
+		return errors.New("command-timeout must be positive")
+	}
+
+	logger.Println("✅ Configuration validation passed")
+	return nil
+}
+
+// updatePhase3Metrics updates rich metrics for Phase 3 monitoring
+func updatePhase3Metrics() {
+	if connectionStore == nil || protocolDetector == nil || anomalyScorer == nil {
+		return
+	}
+
+	// Update connection metrics
+	conns := connectionStore.GetAllConnections()
+	for _, conn := range conns {
+		connectionActiveTotal.WithLabelValues(conn.User, conn.RemoteIP).Set(1)
+		connectionBytesTransferred.WithLabelValues(conn.User, "upload").Add(float64(conn.BytesUploaded))
+		connectionBytesTransferred.WithLabelValues(conn.User, "download").Add(float64(conn.BytesDownloaded))
+	}
+
+	// Update protocol statistics
+	protoStats := protocolDetector.GetStats()
+	if v2Count, ok := protoStats["sftp_v2_count"].(int); ok {
+		protocolVersionInfo.WithLabelValues("2").Set(float64(v2Count))
+	}
+	if v3Count, ok := protoStats["sftp_v3_count"].(int); ok {
+		protocolVersionInfo.WithLabelValues("3").Set(float64(v3Count))
+	}
+
+	// Update anomaly scores for top users
+	connStats := connectionStore.GetStats()
+	if userCount, ok := connStats["unique_users"].(int); ok && userCount > 0 {
+		// For each connection, calculate anomaly score
+		for _, conn := range conns {
+			anomalyScore := anomalyScorer.CalculateAnomalyScore(conn.User)
+			if anomalyScore != nil {
+				anomalyDetectionScore.WithLabelValues(conn.User, "operation_rate").Set(anomalyScore.OperationRateScore)
+				anomalyDetectionScore.WithLabelValues(conn.User, "entropy").Set(anomalyScore.EntropyScore)
+				anomalyDetectionScore.WithLabelValues(conn.User, "time_pattern").Set(anomalyScore.TimePatternScore)
+				anomalyDetectionScore.WithLabelValues(conn.User, "overall").Set(anomalyScore.OverallAnomalyScore)
+
+				// Convert risk level to number
+				riskVal := 0.0
+				switch anomalyScore.RiskLevel {
+				case "low":
+					riskVal = 0
+				case "medium":
+					riskVal = 1
+				case "high":
+					riskVal = 2
+				case "critical":
+					riskVal = 3
+				}
+				userRiskLevel.WithLabelValues(conn.User).Set(riskVal)
+			}
+		}
+	}
+
+	// Update bandwidth metrics
+	bwStats := bandwidthTracker.GetAllBandwidthStats()
+	for user, stats := range bwStats {
+		if stats != nil {
+			userBandwidthBps.WithLabelValues(user, "upload").Set(float64(stats.BytesUpIn1Min * 8))
+			userBandwidthBps.WithLabelValues(user, "download").Set(float64(stats.BytesDownIn1Min * 8))
+		}
+	}
+
+	// Update quota metrics
+	quotaStats := quotaManager.GetStats()
+	if usagePercent, ok := quotaStats["usage_percent"].(float64); ok {
+		userQuotaUsagePercent.WithLabelValues("overall").Set(usagePercent)
+	}
+
+	// Update file operation latency metrics
+	latencyStats := latencyTracker.GetAllStats()
+	for _, stats := range latencyStats {
+		if stats != nil {
+			fileOperationLatency.WithLabelValues(stats.User, stats.Operation).Observe(float64(stats.AvgDuration.Seconds()))
+		}
+	}
+}
+
+// updatePhase2Metrics updates performance metrics for Phase 2 monitoring
+
+func updatePhase2Metrics() {
+	if pollerManager == nil || commandCache == nil || cardinalityLimiter == nil {
+		return
+	}
+
+	// Update cardinality metrics
+	cardStats := cardinalityLimiter.GetStats()
+	if users, ok := cardStats["users"].(int); ok {
+		exporterMetricCardinality.WithLabelValues("users").Set(float64(users))
+	}
+	if fileTypes, ok := cardStats["file_types"].(int); ok {
+		exporterMetricCardinality.WithLabelValues("file_types").Set(float64(fileTypes))
+	}
+	if sessions, ok := cardStats["sessions"].(int); ok {
+		exporterMetricCardinality.WithLabelValues("sessions").Set(float64(sessions))
+	}
+
+	// Update cache hit rate metrics
+	cacheStats := commandCache.GetStats()
+	if hitRate, ok := cacheStats["hit_rate"].(float64); ok {
+		exporterCacheHitRate.WithLabelValues("command_cache").Set(hitRate)
+	}
+
+	// Update poller statistics
+	pollerStats := pollerManager.GetAllPollerStats()
+	for name, stats := range pollerStats {
+		exporterPollerStats.WithLabelValues(name).Set(float64(stats.TotalRuns))
+		exporterPollerInterval.WithLabelValues(name).Set(stats.Interval.Seconds())
+		exporterPollerErrors.WithLabelValues(name).Set(float64(stats.ErrorCount))
+	}
+}
+
+// handleHealth returns health status of the exporter
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	// Check PollerManager health (Phase 2)
+	isHealthy := true
+	if pollerManager != nil {
+		isHealthy = pollerManager.IsHealthy()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if !isHealthy {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintf(w, `{"status":"unhealthy","timestamp":%d,"version":"1.3.1"}`, time.Now().Unix())
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `{"status":"healthy","timestamp":%d,"version":"1.3.1"}`, time.Now().Unix())
+}
+
+// handleReadiness checks if the exporter is ready to serve metrics
+func handleReadiness(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Check if all monitors have started
+	if sessionStore == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprint(w, `{"ready":false,"reason":"session store not initialized"}`)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, `{"ready":true}`)
+}
+
+// handleDiagnostics returns exporter diagnostics (Phase 4)
+func handleDiagnostics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Collect diagnostics
+	diag := map[string]interface{}{
+		"version":         Version,
+		"build_date":      BuildDate,
+		"build_hash":      BuildHash,
+		"go_version":      GoVersion,
+		"timestamp":       time.Now().UTC().Format(time.RFC3339),
+	}
+
+	// Health metrics
+	if healthMetrics != nil {
+		diag["health"] = healthMetrics.GetStats()
+	}
+
+	// Monitor status
+	if monitorRegistry != nil {
+		monitors := make(map[string]bool)
+		for name, healthy := range monitorRegistry.GetHealthStatus() {
+			monitors[name] = healthy
+		}
+		diag["monitors"] = monitors
+	}
+
+	// Configuration (non-sensitive)
+	if appConfig != nil {
+		diag["config"] = map[string]interface{}{
+			"monitoring_enabled": true,
+			"max_goroutines":     appConfig.Performance.MaxMonitorGoroutines,
+			"adaptive_polling":   appConfig.Performance.EnableAdaptivePolling,
+			"cache_enabled":      appConfig.Performance.EnableCaching,
+			"tls_enabled":        appConfig.Web.EnableTLS,
+		}
+	}
+
+	// Encode and send
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(diag)
 }

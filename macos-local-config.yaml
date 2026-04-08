@@ -1,0 +1,65 @@
+# macOS Local Deployment - Quick Config
+# Advanced SFTP Exporter Phase 4
+# Auto-generated for local testing
+
+monitoring:
+  # macOS system log (common location for SFTP events)
+  auth_log: "/var/log/system.log"
+  
+  # Standard macOS user home directory
+  home_base: "/Users"
+  
+  # Polling settings
+  poll_interval: "5s"
+  max_goroutines: 5
+
+security:
+  strict_mode: false
+  connection_timeout: "30s"
+  command_timeout: "10s"
+  rate_limiting_enabled: true
+  rate_limit_rpm: 100
+
+performance:
+  max_series_cardinality: 5000
+  deduplication_enabled: true
+  adaptive_polling_enabled: true
+
+web:
+  listen_address: "127.0.0.1"
+  listen_port: 9115
+  enable_tls: false
+  metrics_enabled: true
+  health_enabled: true
+  readiness_enabled: true
+  diagnostics_enabled: true
+
+logging:
+  level: "INFO"
+  format: "text"
+  output: "stdout"
+  include_timestamp: true
+  structured_fields_enabled: true
+
+anomaly_detection:
+  enabled: true
+  threshold: 0.7
+
+quota_management:
+  enabled: true
+  default_bandwidth_limit: 0
+  default_storage_quota: 0
+  enforce_limits: false
+
+latency_tracking:
+  enabled: true
+
+protocol_detection:
+  enabled: true
+  track_subsystems: true
+
+monitors:
+  auth_log_monitor:
+    enabled: true
+  file_transfer_monitor:
+    enabled: true

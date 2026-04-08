@@ -1,0 +1,279 @@
+# Advanced SFTP Exporter - Helm Chart Values
+# This is the default configuration. Override with your own values.yaml
+
+# Global configuration
+global:
+  # Namespace where resources will be deployed
+  namespace: sftp-exporter
+  
+  # Image registry and repository
+  image:
+    registry: docker.io
+    repository: advanced-sftp-exporter
+    tag: "1.4.0"
+    pullPolicy: Always
+  
+  # Environment: development, staging, production
+  environment: production
+
+# Exporter configuration
+exporter:
+  # Number of replicas
+  replicaCount: 2
+  
+  # Resource allocation
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "500m"
+  
+  # Probe configuration
+  probes:
+    liveness:
+      enabled: true
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      enabled: true
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 2
+    startup:
+      enabled: true
+      initialDelaySeconds: 0
+      periodSeconds: 2
+      timeoutSeconds: 1
+      failureThreshold: 30
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  
+  # Pod affinity configuration
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - advanced-sftp-exporter
+            topologyKey: kubernetes.io/hostname
+  
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  
+  # Update strategy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 9115
+  targetPort: 9115
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9115"
+    prometheus.io/path: "/metrics"
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: basic-auth
+  hosts:
+    - host: sftp-exporter.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: sftp-exporter-tls
+      hosts:
+        - sftp-exporter.example.com
+
+# Prometheus monitoring integration
+prometheus:
+  # Enable ServiceMonitor for Prometheus Operator
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    relabelings: []
+  
+  # Enable PrometheusRule for alerting
+  prometheusRule:
+    enabled: true
+    labels: {}
+    rules:
+      - alert: SFTPExporterDown
+        expr: up{job="sftp-exporter"} == 0
+        for: 5m
+        severity: critical
+        annotations:
+          summary: "SFTP Exporter down for {{ $labels.pod }}"
+          description: "SFTP Exporter has been down for more than 5 minutes"
+      
+      - alert: SftpConnectionDown
+        expr: sftp_up == 0
+        for: 5m
+        severity: warning
+        annotations:
+          summary: "SFTP connection unavailable"
+          description: "SFTP monitoring is unavailable for {{ $labels.user }}"
+      
+      - alert: SFTPHighOpenFiles
+        expr: sftp_open_files > 10000
+        for: 5m
+        severity: warning
+        annotations:
+          summary: "High number of open SFTP files"
+          description: "User {{ $labels.user }} has {{ $value }} open files"
+      
+      - alert: SFTPCommandLatencyHigh
+        expr: histogram_quantile(0.95, sftp_command_latency_seconds_bucket) > 5
+        for: 5m
+        severity: warning
+        annotations:
+          summary: "SFTP command latency is high"
+          description: "95th percentile latency is {{ $value }}s for command {{ $labels.command }}"
+
+# Storage configuration
+storage:
+  enabled: true
+  size: 10Gi
+  storageClass: standard
+  accessMode: ReadWriteOnce
+
+# Logging configuration
+logging:
+  level: info
+  format: json
+  
+# Configuration values passed to the exporter
+config:
+  # Monitoring settings
+  monitoring:
+    enabled: true
+    interval: 30s
+    timeout: 10s
+    maxParallel: 4
+  
+  # Security settings
+  security:
+    enableTLS: false
+    certFile: /etc/sftp-exporter/certs/tls.crt
+    keyFile: /etc/sftp-exporter/certs/tls.key
+    clientAuth: optional
+  
+  # Performance tuning
+  performance:
+    maxConnections: 100
+    bufferSize: 65536
+    connectionTimeout: 30s
+    readTimeout: 60s
+  
+  # Web server settings
+  web:
+    listenAddress: "0.0.0.0:9115"
+    metricsPath: /metrics
+    healthPath: /health
+    readinessPath: /readiness
+  
+  # Logging settings
+  logging:
+    level: info
+    format: json
+    file: /var/log/sftp-exporter/exporter.log
+    maxSizeMb: 500
+    maxAgeDays: 30
+  
+  # Metrics settings
+  metrics:
+    enabled: true
+    includeGoMetrics: true
+    includeProcessMetrics: true
+  
+  # Alert thresholds
+  alerts:
+    sftpUpThreshold: 5s
+    openFilesThreshold: 10000
+    commandLatencyThreshold: 5s
+
+# RBAC configuration
+rbac:
+  create: true
+  serviceAccountName: sftp-exporter
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Network Policy
+networkPolicy:
+  enabled: true
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+  egress:
+    - to:
+        - namespaceSelector: {}
+
+# Node selection
+nodeSelector: {}
+  # disktype: ssd
+
+tolerations: []
+  # - key: "key1"
+  #   operator: "Equal"
+  #   value: "value1"
+  #   effect: "NoSchedule"
+
+# Pod annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9115"
+  prometheus.io/path: "/metrics"
+
+# Labels
+labels:
+  app: advanced-sftp-exporter
+  version: v1.4.0

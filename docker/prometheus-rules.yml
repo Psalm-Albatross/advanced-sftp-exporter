@@ -1,0 +1,144 @@
+groups:
+  - name: advanced-sftp-exporter
+    interval: 30s
+    rules:
+      # Alert: SFTP Exporter Down
+      - alert: SFTPExporterDown
+        expr: up{job="sftp-exporter"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: sftp-exporter
+        annotations:
+          summary: "SFTP Exporter is down for {{ $labels.pod }}"
+          description: |
+            SFTP Exporter instance has been unreachable for {{ $value }} seconds.
+            Instance: {{ $labels.instance }}
+            Pod: {{ $labels.pod }}
+          dashboard: http://grafana:3000/d/sftp-exporter-main
+          
+      # Alert: SFTP Connection Down
+      - alert: SFTPConnectionDown
+        expr: sftp_up == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: sftp-monitor
+        annotations:
+          summary: "SFTP connection unavailable for {{ $labels.user }}"
+          description: |
+            SFTP monitoring for user {{ $labels.user }} is unavailable.
+            This indicates the SFTP service may be offline or unreachable.
+          remediation: "Check SSH/SFTP service status: systemctl status ssh"
+          
+      # Alert: High Open Files
+      - alert: SFTPHighOpenFiles
+        expr: sftp_open_files > 10000
+        for: 10m
+        labels:
+          severity: warning
+          component: sftp-files
+        annotations:
+          summary: "User {{ $labels.user }} has {{ $value }} open SFTP files"
+          description: |
+            User {{ $labels.user }} currently has {{ $value }} open files in SFTP sessions.
+            This may indicate resource exhaustion or hung connections.
+          remediation: "Check open connections: lsof -u {{ $labels.user }} | grep sftp"
+          
+      # Alert: High Command Latency
+      - alert: SFTPCommandLatencyHigh
+        expr: histogram_quantile(0.95, sftp_command_latency_seconds_bucket) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: sftp-performance
+        annotations:
+          summary: "SFTP command {{ $labels.command }} latency is high"
+          description: |
+            The 95th percentile latency for {{ $labels.command }} commands is {{ $value }}s.
+            Command: {{ $labels.command }}
+            User: {{ $labels.user }}
+          remediation: "Check system load: uptime; check disk I/O: iostat -x"
+          
+      # Alert: Cache Hit Rate Low
+      - alert: SFTPCacheHitRateLow
+        expr: |
+          (sftp_cache_hits / (sftp_cache_hits + sftp_cache_misses)) < 0.5
+        for: 15m
+        labels:
+          severity: info
+          component: sftp-cache
+        annotations:
+          summary: "SFTP cache hit rate is low ({{ $value | humanizePercentage }})"
+          description: |
+            SFTP cache hit rate for {{ $labels.user }} is {{ $value | humanizePercentage }}.
+            This may indicate suboptimal caching configuration.
+          
+      # Alert: File Integrity Check Failures
+      - alert: SFTPFileIntegrityFailures
+        expr: increase(sftp_file_integrity_failures_total[5m]) > 0
+        labels:
+          severity: critical
+          component: sftp-integrity
+        annotations:
+          summary: "SFTP file integrity failures detected for {{ $labels.user }}"
+          description: |
+            {{ $value }} file integrity check failures detected for user {{ $labels.user }}.
+            File: {{ $labels.file }}
+            This may indicate data corruption or tampering.
+          remediation: "Review file integrity logs and investigate the affected files"
+          
+      # Alert: Command Audit Log Backlog
+      - alert: SFTPCommandAuditBacklog
+        expr: sftp_command_audit_backlog > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: sftp-audit
+        annotations:
+          summary: "SFTP command audit log has {{ $value }} pending entries"
+          description: |
+            The SFTP command audit log backlog has {{ $value }} pending entries.
+            This may indicate performance issues or I/O bottlenecks.
+          remediation: "Check system I/O: iostat; check disk space: df -h"
+          
+      # Alert: Exporter Memory Usage High
+      - alert: SFTPExporterMemoryHigh
+        expr: process_resident_memory_bytes{job="sftp-exporter"} > 256000000
+        for: 5m
+        labels:
+          severity: warning
+          component: sftp-exporter-resource
+        annotations:
+          summary: "SFTP Exporter memory usage is {{ $value | humanize }}B"
+          description: |
+            SFTP Exporter memory usage has exceeded 256MB.
+            Current memory: {{ $value | humanize }}B
+          remediation: "Restart the exporter or increase memory limits"
+          
+      # Alert: Exporter CPU Usage High
+      - alert: SFTPExporterCPUHigh
+        expr: rate(process_cpu_seconds_total{job="sftp-exporter"}[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          component: sftp-exporter-resource
+        annotations:
+          summary: "SFTP Exporter CPU usage is {{ $value | humanizePercentage }}"
+          description: |
+            SFTP Exporter CPU usage has exceeded 50%.
+            Current CPU: {{ $value | humanizePercentage }}
+          remediation: "Check for performance bottlenecks; scale up exporter resources"
+          
+      # Recording Rule: Request rate by command
+      - record: sftp:request_rate:5m
+        expr: sum(rate(sftp_command_audit_total[5m])) by (command, user)
+        
+      # Recording Rule: Average latency by command
+      - record: sftp:latency_avg:5m
+        expr: histogram_average(sftp_command_latency_seconds_bucket[5m]) by (command, user)
+        
+      # Recording Rule: Cache efficiency
+      - record: sftp:cache_efficiency:5m
+        expr: |
+          sftp_cache_hits / (sftp_cache_hits + sftp_cache_misses) by (user)

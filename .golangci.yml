@@ -1,0 +1,82 @@
+run:
+  timeout: 5m
+  tests: true
+  build-tags: []
+  skip-dirs-use-default: true
+  skip-files:
+    - ".*_test.go"
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  
+  gofmt:
+    rewrite-rules:
+      - pattern: 'a[b:len(a)]'
+        replacement: 'a[b:]'
+  
+  goimports:
+    local-prefixes: advanced-sftp-exporter
+  
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+  
+  golint:
+    min-confidence: 0.8
+  
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  
+  misspell:
+    locale: US
+  
+  lll:
+    line-length: 120
+    tab-width: 1
+  
+  unparam:
+    check-exported: true
+  
+  nakedret:
+    max-func-lines: 30
+  
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: false
+  
+  unused:
+    check-exported: false
+
+linters:
+  enable:
+    - errcheck
+    - gofmt
+    - goimports
+    - govet
+    - golint
+    - goconst
+    - misspell
+    - lll
+    - unparam
+    - nakedret
+    - prealloc
+    - unused
+    - ineffassign
+    - deadcode
+    - unconvert
+
+issues:
+  exclude-use-default: false
+  exclude:
+    - should have a package comment
+    - package comment should be of the form

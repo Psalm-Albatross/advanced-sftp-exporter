@@ -1,0 +1,94 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    monitor: 'advanced-sftp-exporter'
+    environment: 'docker'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+rule_files:
+  - "/etc/prometheus/rules.yml"
+
+scrape_configs:
+  # SFTP Exporter
+  - job_name: 'sftp-exporter'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['sftp-exporter:9115']
+        labels:
+          service: 'sftp-exporter'
+          environment: 'docker'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # Node Exporter (system metrics)
+  - job_name: 'node-exporter'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'node-exporter'
+          type: 'system'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['127.0.0.1:9090']
+        labels:
+          service: 'prometheus'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # AlertManager self-monitoring
+  - job_name: 'alertmanager'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['alertmanager:9093']
+        labels:
+          service: 'alertmanager'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # Grafana metrics
+  - job_name: 'grafana'
+    scrape_interval: 60s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['grafana:3000']
+        labels:
+          service: 'grafana'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+# Service discovery for Docker Swarm (if applicable)
+# Uncomment and configure for Docker Swarm deployments:
+# - job_name: 'docker'
+#   dockersd_configs:
+#     - host: unix:///var/run/docker.sock
+#   relabel_configs:
+#     - source_labels: [__meta_docker_container_name]
+#       target_label: container_name
+#     - source_labels: [__meta_docker_container_label_com_example_service]
+#       target_label: service

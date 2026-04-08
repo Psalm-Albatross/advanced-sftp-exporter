@@ -1,0 +1,177 @@
+[Unit]
+Description=Advanced SFTP Exporter - Phase 4
+Documentation=file:///usr/local/share/doc/sftp-exporter/README.md
+Documentation=file:///usr/local/share/doc/sftp-exporter/DEPLOYMENT-GUIDE.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/advanced-sftp-exporter \
+  -auth-log=/var/log/auth.log \
+  -home-base=/home \
+  -web.listen-address=0.0.0.0:9115 \
+  -web.enable-tls=false
+
+# User and group (must have read permissions on auth.log)
+# Options:
+# - prometheus (if already running Prometheus)
+# - root (if auth.log only readable by root)
+# - sftp-exporter (create dedicated user: useradd -r -s /bin/false sftp-exporter)
+User=prometheus
+Group=prometheus
+
+# Working directory
+WorkingDirectory=/var/lib/sftp-exporter
+
+# Restart behavior
+Restart=on-failure
+RestartSec=5s
+
+# Timeout settings
+TimeoutStopSec=30
+KillMode=mixed
+
+# Resource limits (prevent runaway processes)
+LimitNOFILE=65535
+LimitNPROC=65535
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/sftp-exporter /var/log
+
+# Capabilities (if using non-standard port <1024)
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
+# CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sftp-exporter
+
+# Environment variables (if using config via env)
+Environment="SFTP_EXPORTER_LOG_LEVEL=INFO"
+Environment="SFTP_EXPORTER_LOG_FORMAT=json"
+
+[Install]
+WantedBy=multi-user.target
+
+---
+
+# Installation Instructions for Linux (systemd)
+
+# 1. Copy binary
+#    sudo cp advanced-sftp-exporter-v1.4.0 /usr/local/bin/advanced-sftp-exporter
+#    sudo chmod +x /usr/local/bin/advanced-sftp-exporter
+
+# 2. Create service directory and files
+#    sudo mkdir -p /etc/sftp-exporter
+#    sudo mkdir -p /var/lib/sftp-exporter
+#    sudo mkdir -p /usr/local/share/doc/sftp-exporter
+
+# 3. Copy configuration
+#    sudo cp exporter-config.example.yaml /etc/sftp-exporter/config.yaml
+#    sudo editor /etc/sftp-exporter/config.yaml  # Edit as needed
+#    sudo chmod 640 /etc/sftp-exporter/config.yaml
+
+# 4. Copy documentation
+#    sudo cp README.md /usr/local/share/doc/sftp-exporter/
+#    sudo cp DEPLOYMENT-GUIDE.md /usr/local/share/doc/sftp-exporter/
+
+# 5. Copy systemd service file
+#    sudo cp sftp-exporter.service /etc/systemd/system/
+#    sudo systemctl daemon-reload
+
+# 6. Set permissions (for prometheus user)
+#    sudo chown -R prometheus:prometheus /etc/sftp-exporter
+#    sudo chown -R prometheus:prometheus /var/lib/sftp-exporter
+
+# 7. Start service
+#    sudo systemctl start sftp-exporter
+#    sudo systemctl enable sftp-exporter  # Enable on boot
+
+# 8. Verify it's running
+#    sudo systemctl status sftp-exporter
+#    sudo journalctl -u sftp-exporter -f  # View logs
+
+# 9. Test endpoints
+#    curl http://localhost:9115/health
+#    curl http://localhost:9115/metrics | head
+
+---
+
+# Troubleshooting
+
+# Issue: "Permission denied" when reading auth.log
+# Solution: Use User=root or add user to adm group
+#    sudo usermod -a -G adm prometheus
+#    sudo systemctl restart sftp-exporter
+
+# Issue: "Port 9115 already in use"
+# Solution: Change listen address in ExecStart
+#    ExecStart=/usr/local/bin/advanced-sftp-exporter \
+#      -web.listen-address=0.0.0.0:9116
+
+# Issue: "Config file not found"
+# Solution: Add -config flag to ExecStart
+#    ExecStart=/usr/local/bin/advanced-sftp-exporter \
+#      -config=/etc/sftp-exporter/config.yaml
+
+# View service logs
+#    sudo journalctl -u sftp-exporter -f
+#    sudo journalctl -u sftp-exporter -n 100  # Last 100 lines
+#    sudo journalctl -u sftp-exporter --since="1 hour ago"
+
+# Check service status
+#    sudo systemctl status sftp-exporter
+#    sudo systemctl is-active sftp-exporter
+
+---
+
+# Optional: Log Rotation
+
+# Create /etc/logrotate.d/sftp-exporter:
+#
+# /var/log/sftp-exporter.log {
+#   daily
+#   rotate 7
+#   compress
+#   delaycompress
+#   missingok
+#   notifempty
+#   create 0640 prometheus prometheus
+#   sharedscripts
+#   postrotate
+#       systemctl reload sftp-exporter > /dev/null 2>&1 || true
+#   endscript
+# }
+
+---
+
+# Optional: Socket Activation (Advanced)
+
+# Create /etc/systemd/system/sftp-exporter.socket:
+#
+# [Unit]
+# Description=Advanced SFTP Exporter Socket
+# PartOf=sftp-exporter.service
+#
+# [Socket]
+# ListenStream=9115
+# Accept=no
+#
+# [Install]
+# WantedBy=sockets.target
+
+# Then modify service:
+#    ExecStart=/usr/local/bin/advanced-sftp-exporter -systemd-socket
+
+---
+
+# Last Updated: April 9, 2026
+# For macOS, use launchd instead:
+# - Create ~/Library/LaunchAgents/com.sftp-exporter.plist
+# - See DEPLOYMENT-GUIDE.md for macOS launchd example
