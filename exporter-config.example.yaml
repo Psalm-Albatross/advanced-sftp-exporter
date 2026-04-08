@@ -1,0 +1,342 @@
+# Advanced SFTP Exporter - Configuration Template
+# Phase 4 Configuration Example
+# Last Updated: April 9, 2026
+
+---
+
+# Monitoring Configuration
+monitoring:
+  # Path to SFTP auth log
+  # macOS examples:
+  #   - /var/log/system.log (system events)
+  #   - /private/var/log/system.log (full path)
+  # Linux examples:
+  #   - /var/log/auth.log (Debian/Ubuntu)
+  #   - /var/log/secure (RHEL/CentOS)
+  #   - /var/log/authpriv.log (FreeBSD)
+  auth_log: "/var/log/system.log"
+
+  # Base directory for user home folders
+  # Used for quota calculations and path analysis
+  # macOS examples:
+  #   - /Users (standard)
+  #   - /home (if using local accounts)
+  # Linux examples:
+  #   - /home (standard)
+  #   - /root (for root SFTP access)
+  home_base: "/Users"
+
+  # Polling interval for checking new log entries
+  # Phase 2 optimization: Adaptive backoff (1s to 60s)
+  # Recommended: 5s for most setups
+  poll_interval: "5s"
+
+  # Maximum number of concurrent polling goroutines
+  # Phase 2 optimization: Pooled workers (default 10)
+  # Increase for high-volume SFTP servers
+  max_goroutines: 10
+
+  # Command cache TTL (prevents duplicate processing)
+  # Phase 2 optimization: Reducing metric cardinality
+  # Recommended: 30s (default)
+  command_cache_ttl: "30s"
+
+  # Connection store cleanup interval
+  # Phase 3 feature: Per-session connection tracking
+  # Recommended: 5m (cleanup idle sessions)
+  connection_cleanup_interval: "5m"
+
+---
+
+# Security Configuration
+security:
+  # Enable strict mode (GDPR compliance)
+  # When enabled:
+  #   - Usernames hashed (SHA256)
+  #   - IP addresses masked (last octet hidden)
+  #   - No file names logged (only operation types)
+  # Recommended: true for production
+  strict_mode: false
+
+  # Connection timeout (prevent hanging SFTP sessions)
+  # Recommended: 30s
+  connection_timeout: "30s"
+
+  # Command execution timeout
+  # Phase 1 feature: Safe command execution
+  # Recommended: 10s
+  command_timeout: "10s"
+
+  # Maximum command result cache size
+  # Prevents memory bloat from repeated commands
+  # Recommended: 1000
+  max_cache_size: 1000
+
+  # Enable rate limiting per user
+  # Phase 1 feature: Rate limiting
+  # Recommended: true
+  rate_limiting_enabled: true
+
+  # Rate limit: requests per minute per user
+  rate_limit_rpm: 100
+
+---
+
+# Performance Configuration
+performance:
+  # Cardinality limit for metrics
+  # Phase 2 feature: Prevent label explosion
+  # (prevents "high-cardinality" metrics from overwhelming Prometheus)
+  # Recommended: 5000
+  max_series_cardinality: 5000
+
+  # Enable command result deduplication
+  # Phase 2 optimization: Reduces redundant metric updates
+  # Recommended: true
+  deduplication_enabled: true
+
+  # Metric export batch size
+  # Larger batches = better performance, higher memory
+  # Recommended: 1000
+  export_batch_size: 1000
+
+  # Enable adaptive polling (Phase 2 optimization)
+  # When idle: backing off to 60s
+  # When active: using 1s polling
+  adaptive_polling_enabled: true
+
+  # Minimum polling interval (active phase)
+  adaptive_polling_min: "1s"
+
+  # Maximum polling interval (idle phase)
+  adaptive_polling_max: "60s"
+
+  # Activity threshold (trigger adaptive backoff)
+  # Decreased activity for N polls = enter idle phase
+  adaptive_polling_idle_threshold: 30
+
+  # Graceful shutdown timeout
+  # Time to wait for in-flight metrics before forceful shutdown
+  graceful_shutdown_timeout: "30s"
+
+---
+
+# Web Service Configuration
+web:
+  # Listen address and port
+  listen_address: "0.0.0.0"
+  listen_port: 9115
+
+  # Enable TLS (HTTPS)
+  enable_tls: false
+
+  # TLS certificate path (if enable_tls: true)
+  # tls_cert_path: "/etc/certs/exporter-cert.pem"
+
+  # TLS private key path (if enable_tls: true)
+  # tls_key_path: "/etc/certs/exporter-key.pem"
+
+  # Bearer token for authentication
+  # If set, all /metrics, /health, /readiness, /diagnostics requests require:
+  #   curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:9115/metrics
+  # Recommended: Generate with: openssl rand -base64 32
+  bearer_token: ""
+
+  # Enable metrics endpoint
+  metrics_enabled: true
+
+  # Enable health endpoint
+  health_enabled: true
+
+  # Enable readiness endpoint
+  readiness_enabled: true
+
+  # Enable diagnostics endpoint (Phase 4 feature)
+  # Provides: uptime, goroutine count, memory usage, error history
+  diagnostics_enabled: true
+
+  # Metrics path (where Prometheus scrapes)
+  metrics_path: "/metrics"
+
+---
+
+# Logging Configuration
+logging:
+  # Log level: DEBUG, INFO, WARN, ERROR
+  # Recommended: INFO for production, DEBUG for troubleshooting
+  level: "INFO"
+
+  # Log format: json or text
+  # json: machine-parseable logs for log aggregation systems
+  # text: human-readable logs for development
+  format: "text"
+
+  # Log output: stdout or file path
+  # stdout: logs to terminal (good for containers)
+  # /var/log/sftp-exporter.log: log to file (good for systemd)
+  output: "stdout"
+
+  # Maximum log file size (if output is file)
+  max_file_size_mb: 100
+
+  # Number of rotated log files to keep (if output is file)
+  max_backup_files: 10
+
+  # Include timestamps in logs
+  include_timestamp: true
+
+  # Include structured fields in logs
+  # Adds: user, operation, duration, error level information
+  structured_fields_enabled: true
+
+---
+
+# Phase 3 Features: Enhanced Metrics Configuration
+anomaly_detection:
+  # Enable behavioral anomaly detection
+  # Phase 3 feature: 4-component scoring
+  enabled: true
+
+  # Anomaly score threshold (0.0 - 1.0)
+  # Scores above this trigger anomaly_detected metric
+  # Recommended: 0.7 (allow 70% deviation)
+  threshold: 0.7
+
+  # Components and weights for anomaly scoring:
+  # 1. Operation Rate (30%): deviation from normal upload/download ratio
+  # 2. Entropy (20%): randomness in file names and operations
+  # 3. Time Pattern (20%): deviation from normal hours of operation
+  # 4. Sequence (30%): unusual command patterns or ordering
+
+quota_management:
+  # Enable bandwidth quota enforcement
+  # Phase 3 feature: Per-user bandwidth limits
+  enabled: true
+
+  # Default bandwidth limit (bytes/second) per user
+  # 0 = unlimited
+  default_bandwidth_limit: 0
+
+  # Storage quota per user (bytes)
+  # 0 = unlimited
+  # Recommended: 100GB = 107374182400
+  default_storage_quota: 0
+
+  # Whether to enforce quotas or just track
+  # true: throttle connections exceeding limits
+  # false: only report metrics (for monitoring)
+  enforce_limits: false
+
+latency_tracking:
+  # Enable per-operation latency tracking
+  # Phase 3 feature: p50/p95/p99 percentiles
+  enabled: true
+
+  # Histogram bucket upper bounds (milliseconds)
+  # Defines granularity of latency measurements
+  histogram_buckets:
+    - 10      # 10ms
+    - 50      # 50ms
+    - 100     # 100ms
+    - 500     # 500ms
+    - 1000    # 1s
+    - 5000    # 5s
+    - 10000   # 10s
+
+protocol_detection:
+  # Enable SFTP protocol version detection
+  # Phase 3 feature: Identify SFTP v2, v3, renegotiations
+  enabled: true
+
+  # Track subsystem variations
+  track_subsystems: true
+
+  # Track protocol renegotiations
+  track_renegotiations: true
+
+---
+
+# Advanced: Monitor Registry Configuration (Phase 4)
+monitors:
+  # Individual monitor enablement
+  
+  # Authentication log monitor
+  auth_log_monitor:
+    enabled: true
+    name: "AuthLogMonitor"
+  
+  # File transfer monitor
+  file_transfer_monitor:
+    enabled: true
+    name: "FileTransferMonitor"
+
+  # Add custom monitors here when extending Phase 4 architecture
+
+---
+
+# Example: Production macOS Setup
+# Copy this section and uncomment to deploy to macOS production
+
+# monitoring:
+#   auth_log: "/private/var/log/system.log"
+#   home_base: "/Users"
+#   poll_interval: "10s"
+#   max_goroutines: 5
+#
+# security:
+#   strict_mode: true
+#   connection_timeout: "30s"
+#
+# web:
+#   listen_port: 9115
+#   bearer_token: "your-secure-token-here"
+#
+# logging:
+#   level: "INFO"
+#   format: "json"
+#   output: "stdout"
+
+---
+
+# Example: Production Linux Setup
+# Copy this section and uncomment to deploy to Linux production
+
+# monitoring:
+#   auth_log: "/var/log/auth.log"
+#   home_base: "/home"
+#   poll_interval: "5s"
+#   max_goroutines: 10
+#
+# security:
+#   strict_mode: true
+#   rate_limit_rpm: 200
+#
+# web:
+#   listen_address: "0.0.0.0"
+#   listen_port: 9115
+#   enable_tls: true
+#   tls_cert_path: "/etc/sftp-exporter/cert.pem"
+#   tls_key_path: "/etc/sftp-exporter/key.pem"
+#   bearer_token: "production-token-here"
+#
+# logging:
+#   level: "INFO"
+#   format: "json"
+#   output: "/var/log/sftp-exporter.log"
+
+---
+
+# Notes:
+# 1. All durations use Go syntax: "10s", "5m", "1h"
+# 2. All sizes use bytes or MB where noted
+# 3. Empty strings ("") = feature disabled or default
+# 4. Phase 2 optimizations active by default (adaptive polling, cardinality limiting)
+# 5. Phase 3 features active by default (anomaly, quota, latency, protocol detection)
+# 6. Phase 4 architecture: monitors manageable via registry
+# 7. Environment variables override config file values (SFTP_EXPORTER_* prefix)
+#
+# For environment variable override, use:
+# SFTP_EXPORTER_LOG_LEVEL=DEBUG
+# SFTP_EXPORTER_WEB_PORT=9116
+# SFTP_EXPORTER_SECURITY_STRICT_MODE=true
+# etc.

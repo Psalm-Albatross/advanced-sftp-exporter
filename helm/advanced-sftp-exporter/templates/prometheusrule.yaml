@@ -1,0 +1,18 @@
+{{- if .Values.prometheus.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "advanced-sftp-exporter.fullname" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "advanced-sftp-exporter.labels" . | nindent 4 }}
+    {{- with .Values.prometheus.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: advanced-sftp-exporter
+      interval: 30s
+      rules:
+        {{- toYaml .Values.prometheus.prometheusRule.rules | nindent 8 }}
+{{- end }}

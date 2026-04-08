@@ -10,7 +10,15 @@ else
   VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
 fi
 
+# Get build information
+BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+BUILD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GO_VERSION=$(go version | awk '{print $3}')
+
 echo "Building $tool_name version $VERSION"
+echo "  Build Date: $BUILD_DATE"
+echo "  Build Hash: $BUILD_HASH"
+echo "  Go Version: $GO_VERSION"
 
 # Output directory
 OUTDIR=bin
@@ -33,6 +41,9 @@ PLATFORMS=(
   "freebsd/arm64"
 )
 
+# Build ldflags
+LDFLAGS="-X 'main.Version=$VERSION' -X 'main.BuildDate=$BUILD_DATE' -X 'main.BuildHash=$BUILD_HASH' -X 'main.GoVersion=$GO_VERSION'"
+
 for PLATFORM in "${PLATFORMS[@]}"; do
   IFS="/" read -r GOOS GOARCH <<< "$PLATFORM"
   EXT=""
@@ -41,7 +52,7 @@ for PLATFORM in "${PLATFORMS[@]}"; do
   fi
   OUTPUT_NAME="$OUTDIR/${tool_name}-${VERSION}.${GOOS}-${GOARCH}${EXT}"
   echo "Building for $GOOS/$GOARCH -> $OUTPUT_NAME"
-  env GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X 'main.Version=$VERSION'" -o "$OUTPUT_NAME" *.go
+  env GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "$LDFLAGS" -o "$OUTPUT_NAME" *.go
 done
 
 echo "All binaries built in $OUTDIR/"

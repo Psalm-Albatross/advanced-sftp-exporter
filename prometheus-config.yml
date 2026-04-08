@@ -1,0 +1,278 @@
+# Prometheus Configuration for SFTP Exporter
+# Integration with Phase 4 deployment
+
+# Add this to your Prometheus configuration file (usually /etc/prometheus/prometheus.yml)
+# or create a new file and include it
+
+global:
+  scrape_interval: 30s          # Scrape every 30s (Phase 4 default)
+  evaluation_interval: 15s
+  external_labels:
+    service: 'sftp-exporter'
+    environment: 'production'   # Change to staging/test as needed
+
+# Alerting configuration (optional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            # - 'alertmanager:9093'
+            - 'localhost:9093'   # Uncomment if running Alertmanager
+
+# Alert rules files (optional)
+rule_files:
+  # - '/etc/prometheus/sftp-exporter-alerts.yml'    # Uncomment to add alert rules
+  # - '/etc/prometheus/sftp-exporter-recording.yml' # Uncomment to add recording rules
+
+---
+
+scrape_configs:
+
+  # SFTP Exporter - Primary Job (Phase 4)
+  - job_name: 'sftp-exporter'
+    
+    # Scrape settings
+    scrape_interval: 30s          # How often to scrape
+    scrape_timeout: 10s           # Timeout for each scrape
+    metrics_path: '/metrics'      # Endpoint path
+    
+    # Static targets (local development/testing)
+    static_configs:
+      - targets: ['localhost:9115']
+        labels:
+          instance: 'local'
+          service_type: 'sftp-exporter'
+          phase: '4'
+    
+    # Authentication (if bearer token configured)
+    # Uncomment and set token if SFTP exporter has bearer_token configured
+    # honor_timestamps: false
+    # bearer_token: 'your-secret-token-here'
+    
+    # Relabeling (optional, for advanced use)
+    metric_relabel_configs:
+      # Keep only Phase 4 metrics (optional)
+      - source_labels: [__name__]
+        regex: 'sftp_exporter_.*|sftp_.*'
+        action: keep
+
+  # SFTP Exporter - Health Check Endpoint (optional)
+  - job_name: 'sftp-exporter-health'
+    
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    metrics_path: '/health'
+    
+    static_configs:
+      - targets: ['localhost:9115']
+    
+    # These are informational only, not full metrics
+    metric_relabel_configs:
+      - action: drop
+        regex: '.*'
+        source_labels: [__name__]
+
+  # SFTP Exporter - Diagnostics (optional)
+  - job_name: 'sftp-exporter-diagnostics'
+    
+    scrape_interval: 60s
+    scrape_timeout: 10s
+    metrics_path: '/diagnostics'
+    
+    static_configs:
+      - targets: ['localhost:9115']
+
+---
+
+# Example: Multi-Instance Setup (Production Scale)
+#
+# Use this configuration if running multiple SFTP exporter instances
+# across different servers or data centers.
+#
+# Uncomment and customize below:
+
+# scrape_configs:
+#
+#   # SFTP Exporter - Datacenter A
+#   - job_name: 'sftp-exporter-dc-a'
+#     static_configs:
+#       - targets: ['sftp-exporter-1.dc-a.internal:9115']
+#         labels:
+#           datacenter: 'dc-a'
+#           instance: 'sftp-export-1'
+#       - targets: ['sftp-exporter-2.dc-a.internal:9115']
+#         labels:
+#           datacenter: 'dc-a'
+#           instance: 'sftp-exporter-2'
+#
+#   # SFTP Exporter - Datacenter B
+#   - job_name: 'sftp-exporter-dc-b'
+#     static_configs:
+#       - targets: ['sftp-exporter-1.dc-b.internal:9115']
+#         labels:
+#           datacenter: 'dc-b'
+#           instance: 'sftp-exporter-1'
+#
+
+---
+
+# Prometheus Alert Rules for SFTP Exporter (optional)
+# Save this as /etc/prometheus/sftp-exporter-alerts.yml
+# Then uncomment rule_files section above
+
+# groups:
+#
+#   - name: sftp-exporter-alerts
+#     interval: 30s
+#     rules:
+#
+#       # Alert: Exporter Down
+#       - alert: SFTPExporterDown
+#         expr: up{job="sftp-exporter"} == 0
+#         for: 5m
+#         labels:
+#           severity: critical
+#         annotations:
+#           summary: "SFTP Exporter is down"
+#           description: "SFTP Exporter instance {{ $labels.instance }} has been down for 5 minutes"
+#
+#       # Alert: High Error Rate
+#       - alert: SFTPExporterHighErrorRate
+#         expr: rate(sftp_exporter_error_count_total[5m]) > 0.1
+#         for: 5m
+#         labels:
+#           severity: warning
+#         annotations:
+#           summary: "SFTP Exporter has high error rate"
+#           description: "Error rate is {{ $value }} errors/sec on {{ $labels.instance }}"
+#
+#       # Alert: High Memory Usage
+#       - alert: SFTPExporterHighMemory
+#         expr: sftp_exporter_memory_usage_bytes > 100_000_000  # 100MB
+#         for: 10m
+#         labels:
+#           severity: warning
+#         annotations:
+#           summary: "SFTP Exporter memory usage is high"
+#           description: "Memory usage is {{ humanize $value }}B on {{ $labels.instance }}"
+#
+#       # Alert: Monitor Unhealthy
+#       - alert: SFTPExporterMonitorUnhealthy
+#         expr: sftp_exporter_monitor_health != 1
+#         for: 5m
+#         labels:
+#           severity: warning
+#         annotations:
+#           summary: "SFTP Exporter monitor is unhealthy"
+#           description: "Monitor health status is unhealthy on {{ $labels.instance }}"
+
+---
+
+# PromQL Query Examples (for testing in Prometheus UI)
+
+# System Health Queries:
+#
+# 1. Exporter uptime
+#    sftp_exporter_uptime_seconds
+#
+# 2. Current goroutines
+#    sftp_exporter_goroutine_count
+#
+# 3. Memory usage
+#    sftp_exporter_memory_usage_bytes / 1024 / 1024  (in MB)
+#
+# 4. Scrape latency p99
+#    histogram_quantile(0.99, sftp_exporter_scrape_duration_seconds_bucket)
+#
+# 5. Error rate (per minute)
+#    rate(sftp_exporter_error_count_total[1m])
+#
+# SFTP Connection Queries:
+#
+# 6. Active connections
+#    sftp_connection_active_total
+#
+# 7. Average connection duration
+#    rate(sftp_connection_duration_seconds_sum[5m]) / 
+#    rate(sftp_connection_duration_seconds_count[5m])
+#
+# 8. Connection success rate
+#    rate(sftp_connection_status_total{status="success"}[5m]) /
+#    rate(sftp_connection_status_total[5m])
+#
+# Anomaly Detection Queries:
+#
+# 9. Anomalies detected (count)
+#    increase(sftp_anomaly_detection_triggered_total[1h])
+#
+# 10. Top anomalies by user
+#     topk(5, sftp_anomaly_detection_score)
+#
+# Performance Queries:
+#
+# 11. File operation latency p95
+#     histogram_quantile(0.95, sftp_file_operation_latency_seconds_bucket)
+#
+# 12. Bandwidth utilization (bytes/sec)
+#     rate(sftp_user_upload_bytes_total[1m]) + 
+#     rate(sftp_user_download_bytes_total[1m])
+
+---
+
+# Grafana Dashboard Integration
+
+# To add SFTP Exporter metrics to Grafana:
+#
+# 1. Add Prometheus as data source:
+#    - URL: http://localhost:9090
+#    - Access: Browser
+#
+# 2. Create a new dashboard
+#
+# 3. Add panels with queries from examples above
+#
+# 4. For pre-built dashboards, see:
+#    - docs/ARCHITECTURE.md (example dashboard JSON)
+#    - docs/METRICS.md (metric reference with dashboards)
+
+---
+
+# Local Development Setup (macOS)
+
+# 1. Install Prometheus via Homebrew
+#    brew install prometheus
+#
+# 2. Create prometheus.yml (copy the content of this file to):
+#    ~/prometheus/prometheus.yml
+#
+# 3. Start Prometheus
+#    cd ~/prometheus && ./prometheus --config.file=prometheus.yml
+#
+# 4. Access UI
+#    http://localhost:9090
+#
+# 5. Query SFTP Exporter metrics
+#    See "PromQL Query Examples" section above
+
+---
+
+# Production Setup (Linux with systemd)
+
+# 1. Edit /etc/prometheus/prometheus.yml
+#    Add the scrape_configs section (see above)
+#
+# 2. Reload Prometheus configuration
+#    sudo systemctl reload prometheus
+#
+# 3. Verify scraping (in Prometheus UI)
+#    Status → Targets
+#    Should show "sftp-exporter" with green UP status
+#
+# 4. Alert on issues (optional)
+#    Add alert rules from "Alert Rules" section above
+#    sudo systemctl reload prometheus
+
+---
+
+# Last Updated: April 9, 2026
+# Phase 4 Production Ready

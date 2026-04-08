@@ -1,0 +1,137 @@
+global:
+  resolve_timeout: 5m
+  slack_api_url: '${SLACK_WEBHOOK_URL}'  # Set via environment variable
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# Template files for alert formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  
+  routes:
+    # Critical SFTP Exporter alerts
+    - match:
+        severity: 'critical'
+        component: 'sftp-exporter'
+      receiver: 'critical-alerting'
+      group_wait: 0s
+      group_interval: 5m
+      repeat_interval: 1h
+      continue: true
+    
+    # File integrity alerts - critical
+    - match:
+        severity: 'critical'
+        component: 'sftp-integrity'
+      receiver: 'security-alerts'
+      group_wait: 0s
+      group_interval: 5m
+      repeat_interval: 1h
+      continue: true
+    
+    # SFTP connection down - warning
+    - match:
+        severity: 'warning'
+        component: 'sftp-monitor'
+      receiver: 'sftp-alerts'
+      group_wait: 15s
+      group_interval: 10m
+      repeat_interval: 4h
+    
+    # Performance alerts - warning
+    - match:
+        severity: 'warning'
+        component: 'sftp-performance'
+      receiver: 'performance-alerts'
+      group_wait: 30s
+      group_interval: 30m
+      repeat_interval: 8h
+    
+    # Informational alerts
+    - match:
+        severity: 'info'
+      receiver: 'info-alerts'
+      group_wait: 1m
+      group_interval: 1h
+      repeat_interval: 24h
+
+inhibit_rules:
+  # Suppress warning alerts if exporter is down
+  - source_match:
+      severity: 'critical'
+      component: 'sftp-exporter'
+    target_match:
+      severity: 'warning'
+    equal: ['service']
+  
+  # Suppress file info alerts if connection is down
+  - source_match:
+      severity: 'warning'
+      component: 'sftp-monitor'
+    target_match:
+      severity: 'info'
+    equal: ['user']
+
+receivers:
+  # Default receiver - all unmatched alerts
+  - name: 'default'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_KEY}'
+        description: '{{ .GroupLabels.alertname }}'
+  
+  # Critical alerts - immediate notification
+  - name: 'critical-alerting'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_CRITICAL_KEY}'
+        description: 'CRITICAL: {{ .GroupLabels.alertname }}'
+        severity: 'critical'
+    slack_configs:
+      - channel: '#sftp-critical'
+        title: '🚨 Critical Alert'
+        text: '{{ range .Alerts.Firing }}{{ .Annotations.description }}{{ end }}'
+    email_configs:
+      - to: 'critical-alerts@example.com'
+        from: 'alertmanager@example.com'
+        smarthost: 'smtp.example.com:587'
+        auth_username: '${SMTP_USER}'
+        auth_password: '${SMTP_PASSWORD}'
+  
+  # Security alerts
+  - name: 'security-alerts'
+    slack_configs:
+      - channel: '#security-alerts'
+        title: '🔒 Security Alert'
+        text: '{{ range .Alerts.Firing }}{{ .Annotations.description }}{{ end }}'
+    email_configs:
+      - to: 'security@example.com'
+        from: 'alertmanager@example.com'
+        smarthost: 'smtp.example.com:587'
+        auth_username: '${SMTP_USER}'
+        auth_password: '${SMTP_PASSWORD}'
+  
+  # SFTP service alerts
+  - name: 'sftp-alerts'
+    slack_configs:
+      - channel: '#sftp-alerts'
+        title: '⚠️ SFTP Alert'
+        text: '{{ range .Alerts.Firing }}{{ .Annotations.summary }}: {{ .Annotations.description }}{{ end }}'
+  
+  # Performance alerts
+  - name: 'performance-alerts'
+    slack_configs:
+      - channel: '#performance-alerts'
+        title: '📊 Performance Alert'
+        text: '{{ range .Alerts.Firing }}{{ .Annotations.summary }}{{ end }}'
+  
+  # Informational alerts
+  - name: 'info-alerts'
+    slack_configs:
+      - channel: '#sftp-notifications'
+        title: 'ℹ️ Information'
+        text: '{{ range .Alerts.Firing }}{{ .Annotations.summary }}{{ end }}'

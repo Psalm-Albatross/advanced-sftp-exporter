@@ -1,0 +1,29 @@
+apiVersion: v2
+name: advanced-sftp-exporter
+description: A Helm chart for Advanced SFTP Exporter, a comprehensive Prometheus exporter for SFTP monitoring and auditing
+type: application
+version: 1.4.0
+appVersion: "1.4.0-phase5"
+
+maintainers:
+  - name: SFTP Exporter Team
+    email: team@sftpexporter.dev
+
+keywords:
+  - sftp
+  - prometheus
+  - exporter
+  - monitoring
+  - prometheus-exporter
+  - kubernetes
+
+home: https://github.com/yourusername/advanced-sftp-exporter
+sources:
+  - https://github.com/yourusername/advanced-sftp-exporter
+repository: https://github.com/yourusername/advanced-sftp-exporter
+
+icon: https://raw.githubusercontent.com/yourusername/advanced-sftp-exporter/main/icon.png
+
+dependencies: []
+
+icon: https://prometheus.io/assets/favicons/apple-touch-icon-180x180.png

@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "advanced-sftp-exporter.fullname" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "advanced-sftp-exporter.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.exporter.replicaCount }}
+  {{- end }}
+  strategy:
+    {{- toYaml .Values.exporter.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "advanced-sftp-exporter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- toYaml .Values.podAnnotations | nindent 8 }}
+      labels:
+        {{- include "advanced-sftp-exporter.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "advanced-sftp-exporter.serviceAccountName" . }}
+      securityContext:
+        fsGroup: 1000
+      affinity:
+        {{- toYaml .Values.exporter.affinity | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.exporter.securityContext | nindent 12 }}
+          image: "{{ .Values.global.image.registry }}/{{ .Values.global.image.repository }}:{{ .Values.global.image.tag }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            - name: LOG_LEVEL
+              value: {{ .Values.logging.level | quote }}
+            - name: METRICS_PATH
+              value: {{ .Values.config.web.metricsPath | quote }}
+            - name: HEALTH_PATH
+              value: {{ .Values.config.web.healthPath | quote }}
+            - name: READINESS_PATH
+              value: {{ .Values.config.web.readinessPath | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          command:
+            - /usr/local/bin/advanced-sftp-exporter
+          args:
+            - -web.listen-address={{ .Values.config.web.listenAddress }}
+            - -auth-log=/var/log/auth.log
+            - -home-base=/home
+            - -config=/etc/sftp-exporter/config.yaml
+          {{- if .Values.exporter.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.config.web.healthPath }}
+              port: metrics
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.exporter.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.exporter.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.exporter.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.exporter.probes.liveness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.exporter.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.config.web.readinessPath }}
+              port: metrics
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.exporter.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.exporter.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.exporter.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.exporter.probes.readiness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.exporter.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.config.web.healthPath }}
+              port: metrics
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.exporter.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.exporter.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.exporter.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.exporter.probes.startup.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.exporter.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sftp-exporter
+              readOnly: true
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /var/log
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "advanced-sftp-exporter.fullname" . }}-config
+        {{- if .Values.storage.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "advanced-sftp-exporter.fullname" . }}-data
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}

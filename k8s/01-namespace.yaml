@@ -1,0 +1,135 @@
+---
+# Namespace for advanced-sftp-exporter
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sftp-exporter
+  labels:
+    app: advanced-sftp-exporter
+    env: production
+---
+# ConfigMap for exporter configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sftp-exporter-config
+  namespace: sftp-exporter
+data:
+  config.yaml: |
+    # Advanced SFTP Exporter Kubernetes Configuration
+    
+    # Monitoring configuration
+    monitoring:
+      enabled: true
+      interval: 30s
+      timeout: 10s
+      max_parallel: 4
+      
+    # Security configuration
+    security:
+      enable_tls: true
+      cert_file: /etc/sftp-exporter/certs/tls.crt
+      key_file: /etc/sftp-exporter/certs/tls.key
+      client_auth: optional
+      
+    # Performance tuning
+    performance:
+      max_connections: 100
+      buffer_size: 65536
+      connection_timeout: 30s
+      read_timeout: 60s
+      
+    # Web server configuration
+    web:
+      listen_address: 0.0.0.0:9115
+      metrics_path: /metrics
+      health_path: /health
+      readiness_path: /readiness
+      
+    # Logging configuration
+    logging:
+      level: info
+      format: json
+      file: /var/log/sftp-exporter/exporter.log
+      max_size_mb: 500
+      max_age_days: 30
+      
+    # Metrics configuration
+    metrics:
+      enabled: true
+      include_go_metrics: true
+      include_process_metrics: true
+      
+    # Alert thresholds
+    alerts:
+      sftp_up_threshold: 5s
+      open_files_threshold: 1000
+      command_latency_threshold: 5s
+
+---
+# PersistentVolumeClaim for data storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sftp-exporter-data
+  namespace: sftp-exporter
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+
+---
+# ServiceAccount for RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sftp-exporter
+  namespace: sftp-exporter
+  labels:
+    app: advanced-sftp-exporter
+
+---
+# ClusterRole for RBAC
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sftp-exporter
+  labels:
+    app: advanced-sftp-exporter
+rules:
+  # Read pod information (for topology-aware deployment)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # Read node information
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  # Read persistent volumes
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list"]
+  # Read persistent volume claims
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list"]
+
+---
+# ClusterRoleBinding for RBAC
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sftp-exporter
+  labels:
+    app: advanced-sftp-exporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sftp-exporter
+subjects:
+  - kind: ServiceAccount
+    name: sftp-exporter
+    namespace: sftp-exporter
