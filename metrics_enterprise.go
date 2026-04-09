@@ -348,15 +348,6 @@ var (
 		[]string{"user", "operation"},
 	)
 
-	fileSizeDistributionBytes = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "sftp_file_size_distribution_bytes",
-			Help:    "Distribution of file sizes transferred",
-			Buckets: []float64{1024, 10240, 102400, 1048576, 10485760, 104857600, 1073741824},
-		},
-		[]string{"operation"},
-	)
-
 	fileAgeDistributionSeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "sftp_file_age_distribution_seconds",
@@ -739,7 +730,6 @@ func RegisterNewMetrics() error {
 	prometheus.MustRegister(fileDirectoryScanLatencySeconds)
 	prometheus.MustRegister(fileSymlinkOperationsTotal)
 	prometheus.MustRegister(filePermissionDeniedErrorsTotal)
-	prometheus.MustRegister(fileSizeDistributionBytes)
 	prometheus.MustRegister(fileAgeDistributionSeconds)
 	prometheus.MustRegister(fileInodeUsagePercent)
 	prometheus.MustRegister(fileRecoveryDeletedCount)
