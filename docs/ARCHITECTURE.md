@@ -283,7 +283,7 @@ Config {
   }
   
   Web {
-    listen_address: ":9115"
+    listen_address: ":1210"
     enable_tls: false
     bearer_token: "secret"
     rate_limit_req_sec: 100
@@ -428,9 +428,9 @@ myMetric.WithLabelValues("value1", "value2").Set(42)
 
 ### Manual Testing
 - Build and run: `make build && ./bin/advanced-sftp-exporter`
-- Check metrics: `curl http://localhost:9115/metrics`
-- Check health: `curl http://localhost:9115/health`
-- Check diagnostics: `curl http://localhost:9115/diagnostics`
+- Check metrics: `curl http://localhost:1210/metrics`
+- Check health: `curl http://localhost:1210/health`
+- Check diagnostics: `curl http://localhost:1210/diagnostics`
 
 ---
 

@@ -21,7 +21,7 @@ scrape_configs:
     scrape_timeout: 10s
     metrics_path: '/metrics'
     static_configs:
-      - targets: ['sftp-exporter:9115']
+      - targets: ['sftp-exporter:1210']
         labels:
           service: 'sftp-exporter'
           environment: 'docker'

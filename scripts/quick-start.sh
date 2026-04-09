@@ -89,13 +89,13 @@ ${GREEN}Docker Deployment Complete!${NC}
 ${BLUE}Service URLs:${NC}
   • Prometheus: http://localhost:9090
   • Grafana: http://localhost:3000 (admin/admin)
-  • SFTP Exporter: http://localhost:9115/metrics
+  • SFTP Exporter: http://localhost:1210/metrics
   • AlertManager: http://localhost:9093
 
 ${BLUE}Quick Commands:${NC}
   • View logs: docker-compose logs -f sftp-exporter
   • Stop services: docker-compose down
-  • Health check: curl http://localhost:9115/health
+  • Health check: curl http://localhost:1210/health
 
 EOF
 }
@@ -131,7 +131,7 @@ EOF
     cat << EOF
 
 ${BLUE}Quick Commands:${NC}
-  • Port forward: kubectl port-forward -n $NAMESPACE svc/sftp-exporter 9115:9115
+  • Port forward: kubectl port-forward -n $NAMESPACE svc/sftp-exporter 1210:1210
   • View logs: kubectl logs -n $NAMESPACE -l app=advanced-sftp-exporter -f
   • Check pods: kubectl get pods -n $NAMESPACE -w
   • Scale replicas: kubectl scale deployment sftp-exporter -n $NAMESPACE --replicas=5

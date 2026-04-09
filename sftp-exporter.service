@@ -10,7 +10,7 @@ Type=simple
 ExecStart=/usr/local/bin/advanced-sftp-exporter \
   -auth-log=/var/log/auth.log \
   -home-base=/home \
-  -web.listen-address=0.0.0.0:9115 \
+  -web.listen-address=0.0.0.0:1210 \
   -web.enable-tls=false
 
 # User and group (must have read permissions on auth.log)
@@ -98,8 +98,8 @@ WantedBy=multi-user.target
 #    sudo journalctl -u sftp-exporter -f  # View logs
 
 # 9. Test endpoints
-#    curl http://localhost:9115/health
-#    curl http://localhost:9115/metrics | head
+#    curl http://localhost:1210/health
+#    curl http://localhost:1210/metrics | head
 
 ---
 
@@ -110,7 +110,7 @@ WantedBy=multi-user.target
 #    sudo usermod -a -G adm prometheus
 #    sudo systemctl restart sftp-exporter
 
-# Issue: "Port 9115 already in use"
+# Issue: "Port 1210 already in use"
 # Solution: Change listen address in ExecStart
 #    ExecStart=/usr/local/bin/advanced-sftp-exporter \
 #      -web.listen-address=0.0.0.0:9116
@@ -160,7 +160,7 @@ WantedBy=multi-user.target
 # PartOf=sftp-exporter.service
 #
 # [Socket]
-# ListenStream=9115
+# ListenStream=1210
 # Accept=no
 #
 # [Install]

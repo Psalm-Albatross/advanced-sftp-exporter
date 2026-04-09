@@ -1,8 +1,8 @@
 # Advanced SFTP Exporter
 
-A highly advanced Prometheus exporter for monitoring SFTP (SSH File Transfer Protocol) activity, security, and resource usage on Linux and macOS servers. Enterprise-grade monitoring with 104+ metrics across 8 categories.
+A highly advanced Prometheus exporter for monitoring SFTP (SSH File Transfer Protocol) activity, security, and resource usage on Linux and macOS servers. Enterprise-grade monitoring with 103 metrics across 8 categories, professionally architected for maintainability and quality assurance.
 
-**Current Version**: 1.4.0-phase5 | **Metrics**: 104 total (47 core + 57 enterprise) | **Status**: Production Ready
+**Current Version**: 1.4.2 | **Metrics**: 103 total (44 core + 13 monitoring + 56 enterprise) | **Status**: Production Ready + Professionally Refactored
 
 ## Features
 - **Multi-architecture binaries**: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, freebsd/amd64, freebsd/arm64, linux/ppc64le, linux/s390x, linux/386, linux/arm
@@ -55,7 +55,7 @@ Or with custom flags:
   -home-base /home \
   -upload-marker-suffix .uploaded \
   -download-marker-suffix .downloaded \
-  -web.listen-address :9115 \
+  -web.listen-address :1210 \
   -idle-threshold-seconds 300 \
   -home-glob "/home/*" \
   -home-regex "^/home/demo-ftp-.*$" \
@@ -68,7 +68,7 @@ Or with custom flags:
 - `-home-base`: Base directory for user home dirs (default: /home)
 - `-upload-marker-suffix`: Suffix for upload marker files (default: .uploaded)
 - `-download-marker-suffix`: Suffix for download marker files (default: .downloaded)
-- `-web.listen-address`: Address for metrics endpoint (default: :9115)
+- `-web.listen-address`: Address for metrics endpoint (default: :1210)
 - `-idle-threshold-seconds`: Idle session threshold (default: 300)
 - `-home-glob`: Glob pattern for user home dirs
 - `-home-regex`: Regex to filter user home dirs
@@ -82,12 +82,12 @@ Add a scrape config to your Prometheus config:
 ```yaml
 - job_name: 'advanced-sftp-exporter'
   static_configs:
-    - targets: ['localhost:9115']
+    - targets: ['localhost:1210']
   scrape_interval: 15s
   scrape_timeout: 10s
 ```
 
-Metrics will be available at: [http://localhost:9115/metrics](http://localhost:9115/metrics)
+Metrics will be available at: [http://localhost:1210/metrics](http://localhost:1210/metrics)
 
 **Total Metrics**: 104 (expandable)
 **Estimated Time Series**: 400-500 (with all labels)

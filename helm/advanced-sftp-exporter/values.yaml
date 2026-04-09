@@ -90,11 +90,11 @@ exporter:
 # Service configuration
 service:
   type: ClusterIP
-  port: 9115
-  targetPort: 9115
+  port: 1210
+  targetPort: 1210
   annotations:
     prometheus.io/scrape: "true"
-    prometheus.io/port: "9115"
+    prometheus.io/port: "1210"
     prometheus.io/path: "/metrics"
 
 # Ingress configuration
@@ -199,7 +199,7 @@ config:
   
   # Web server settings
   web:
-    listenAddress: "0.0.0.0:9115"
+    listenAddress: "0.0.0.0:1210"
     metricsPath: /metrics
     healthPath: /health
     readinessPath: /readiness
@@ -270,7 +270,7 @@ tolerations: []
 # Pod annotations
 podAnnotations:
   prometheus.io/scrape: "true"
-  prometheus.io/port: "9115"
+  prometheus.io/port: "1210"
   prometheus.io/path: "/metrics"
 
 # Labels

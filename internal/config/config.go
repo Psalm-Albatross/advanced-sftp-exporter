@@ -97,7 +97,7 @@ func NewDefaultConfig() *Config {
 			CacheTTLSec:          3600,
 		},
 		Web: WebConfig{
-			ListenAddress:   ":9115",
+			ListenAddress:   ":1210",
 			EnableTLS:       false,
 			RateLimitReqSec: 100,
 		},

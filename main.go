@@ -50,7 +50,7 @@ const (
 
 // Build-time variables (set via -ldflags during build)
 var (
-	Version   = "1.4.0-phase5"
+	Version   = "1.4.2"
 	BuildDate = "unknown"
 	BuildHash = "unknown"
 	GoVersion = "unknown"
@@ -167,7 +167,7 @@ func main() {
 	flag.StringVar(&homeBasePath, "home-base", "/home", "Base directory for user home dirs")
 	flag.StringVar(&uploadMarkerSuffix, "upload-marker-suffix", ".uploaded", "Suffix for upload marker files")
 	flag.StringVar(&downloadMarkerSuffix, "download-marker-suffix", ".downloaded", "Suffix for download marker files")
-	flag.StringVar(&listenAddress, "web.listen-address", ":9115", "Address to listen on for web interface and telemetry.")
+	flag.StringVar(&listenAddress, "web.listen-address", ":1210", "Address to listen on for web interface and telemetry.")
 	flag.IntVar(&idleThresholdSec, "idle-threshold-seconds", 300, "Idle threshold for session idle detection in seconds")
 	flag.StringVar(&homeGlob, "home-glob", "/home/*", "Glob pattern for user home dirs (e.g. /demo-ftp-*)")
 	flag.StringVar(&homeRegex, "home-regex", "", "Regex pattern to further filter user home dirs (optional)")

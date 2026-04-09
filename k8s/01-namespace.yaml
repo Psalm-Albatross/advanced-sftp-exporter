@@ -41,7 +41,7 @@ data:
       
     # Web server configuration
     web:
-      listen_address: 0.0.0.0:9115
+      listen_address: 0.0.0.0:1210
       metrics_path: /metrics
       health_path: /health
       readiness_path: /readiness

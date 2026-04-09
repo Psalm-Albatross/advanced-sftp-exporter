@@ -27,7 +27,7 @@ performance:
 
 web:
   listen_address: "127.0.0.1"
-  listen_port: 9115
+  listen_port: 1210
   enable_tls: false
   metrics_enabled: true
   health_enabled: true

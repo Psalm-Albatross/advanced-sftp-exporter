@@ -2,14 +2,14 @@
   kubectl get deployment -n {{ .Values.global.namespace }}
 
 2. Forward the metrics port to your local machine:
-  kubectl port-forward -n {{ .Values.global.namespace }} svc/{{ include "advanced-sftp-exporter.fullname" . }} 9115:9115
+  kubectl port-forward -n {{ .Values.global.namespace }} svc/{{ include "advanced-sftp-exporter.fullname" . }} 1210:1210
 
 3. Access Prometheus metrics:
-  http://localhost:9115/metrics
+  http://localhost:1210/metrics
 
 4. Check the health of the exporter:
   kubectl exec -it -n {{ .Values.global.namespace }} deployments/{{ include "advanced-sftp-exporter.fullname" . }} -- \
-    wget -q -O - http://localhost:9115/health
+    wget -q -O - http://localhost:1210/health
 
 5. View the logs:
   kubectl logs -n {{ .Values.global.namespace }} -f deployment/{{ include "advanced-sftp-exporter.fullname" . }}
@@ -20,7 +20,7 @@
   scrape_configs:
     - job_name: 'sftp-exporter'
       static_configs:
-        - targets: ['{{ include "advanced-sftp-exporter.fullname" . }}.{{ .Values.global.namespace }}.svc.cluster.local:9115']
+        - targets: ['{{ include "advanced-sftp-exporter.fullname" . }}.{{ .Values.global.namespace }}.svc.cluster.local:1210']
 
 {{- if .Values.prometheus.serviceMonitor.enabled }}
 

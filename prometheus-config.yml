@@ -38,7 +38,7 @@ scrape_configs:
     
     # Static targets (local development/testing)
     static_configs:
-      - targets: ['localhost:9115']
+      - targets: ['localhost:1210']
         labels:
           instance: 'local'
           service_type: 'sftp-exporter'
@@ -64,7 +64,7 @@ scrape_configs:
     metrics_path: '/health'
     
     static_configs:
-      - targets: ['localhost:9115']
+      - targets: ['localhost:1210']
     
     # These are informational only, not full metrics
     metric_relabel_configs:
@@ -80,7 +80,7 @@ scrape_configs:
     metrics_path: '/diagnostics'
     
     static_configs:
-      - targets: ['localhost:9115']
+      - targets: ['localhost:1210']
 
 ---
 
@@ -96,11 +96,11 @@ scrape_configs:
 #   # SFTP Exporter - Datacenter A
 #   - job_name: 'sftp-exporter-dc-a'
 #     static_configs:
-#       - targets: ['sftp-exporter-1.dc-a.internal:9115']
+#       - targets: ['sftp-exporter-1.dc-a.internal:1210']
 #         labels:
 #           datacenter: 'dc-a'
 #           instance: 'sftp-export-1'
-#       - targets: ['sftp-exporter-2.dc-a.internal:9115']
+#       - targets: ['sftp-exporter-2.dc-a.internal:1210']
 #         labels:
 #           datacenter: 'dc-a'
 #           instance: 'sftp-exporter-2'
@@ -108,7 +108,7 @@ scrape_configs:
 #   # SFTP Exporter - Datacenter B
 #   - job_name: 'sftp-exporter-dc-b'
 #     static_configs:
-#       - targets: ['sftp-exporter-1.dc-b.internal:9115']
+#       - targets: ['sftp-exporter-1.dc-b.internal:1210']
 #         labels:
 #           datacenter: 'dc-b'
 #           instance: 'sftp-exporter-1'

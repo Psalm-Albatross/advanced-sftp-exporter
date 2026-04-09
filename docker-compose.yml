@@ -9,7 +9,7 @@ services:
     container_name: advanced-sftp-exporter
     restart: unless-stopped
     ports:
-      - "9115:9115"
+      - "1210:1210"
     environment:
       LOG_LEVEL: info
       METRICS_PATH: /metrics

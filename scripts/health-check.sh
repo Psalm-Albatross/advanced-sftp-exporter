@@ -21,9 +21,9 @@ check_docker_health() {
     
     # Check metrics endpoint
     echo -e "\n${YELLOW}Metrics Endpoint:${NC}"
-    if curl -s http://localhost:9115/metrics > /dev/null 2>&1; then
+    if curl -s http://localhost:1210/metrics > /dev/null 2>&1; then
         echo -e "${GREEN}✓${NC} Metrics endpoint responding"
-        METRIC_COUNT=$(curl -s http://localhost:9115/metrics | grep -c "^#")
+        METRIC_COUNT=$(curl -s http://localhost:1210/metrics | grep -c "^#")
         echo "  Metric families: $METRIC_COUNT"
     else
         echo -e "${RED}✗${NC} Metrics endpoint not responding"
@@ -31,9 +31,9 @@ check_docker_health() {
     
     # Check health endpoint
     echo -e "\n${YELLOW}Health Endpoint:${NC}"
-    if curl -s http://localhost:9115/health > /dev/null 2>&1; then
+    if curl -s http://localhost:1210/health > /dev/null 2>&1; then
         echo -e "${GREEN}✓${NC} Health endpoint responding"
-        HEALTH=$(curl -s http://localhost:9115/health)
+        HEALTH=$(curl -s http://localhost:1210/health)
         echo "  $HEALTH" | jq .
     else
         echo -e "${RED}✗${NC} Health endpoint not responding"
@@ -64,9 +64,9 @@ check_k8s_health() {
     # Check metrics endpoint
     echo -e "\n${YELLOW}Metrics Collection:${NC}"
     POD=$(kubectl get pod -n $NAMESPACE -o jsonpath='{.items[0].metadata.name}')
-    if kubectl exec -n $NAMESPACE $POD -- wget -q -O - http://localhost:9115/metrics > /dev/null 2>&1; then
+    if kubectl exec -n $NAMESPACE $POD -- wget -q -O - http://localhost:1210/metrics > /dev/null 2>&1; then
         echo -e "${GREEN}✓${NC} Metrics endpoint responding"
-        METRIC_COUNT=$(kubectl exec -n $NAMESPACE $POD -- wget -q -O - http://localhost:9115/metrics 2>/dev/null | grep -c "^#" || echo "0")
+        METRIC_COUNT=$(kubectl exec -n $NAMESPACE $POD -- wget -q -O - http://localhost:1210/metrics 2>/dev/null | grep -c "^#" || echo "0")
         echo "  Metric families: $METRIC_COUNT"
     else
         echo -e "${RED}✗${NC} Metrics endpoint not responding"

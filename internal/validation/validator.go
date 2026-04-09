@@ -199,7 +199,7 @@ func (cv ConfigValidator) ValidateListenAddress(addr string) error {
 			}
 		}
 		if !hasColon {
-			return errors.New("listen address must include port (format: :9115 or host:9115)")
+			return errors.New("listen address must include port (format: :1210 or host:1210)")
 		}
 	}
 

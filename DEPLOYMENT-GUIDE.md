@@ -37,14 +37,14 @@ Expected output:
 
 # Expected startup:
 # time=2026-04-09T10:30:00Z level=INFO msg="Starting Advanced SFTP Exporter" version=1.4.0-phase4
-# time=2026-04-09T10:30:00Z level=INFO msg="Web service listening" addr=:9115
+# time=2026-04-09T10:30:00Z level=INFO msg="Web service listening" addr=:1210
 ```
 
 ### Step 4: Test Health Endpoints
 ```bash
 # In another terminal, verify it's running
-curl -s http://localhost:9115/health | jq .
-curl -s http://localhost:9115/readiness | jq .
+curl -s http://localhost:1210/health | jq .
+curl -s http://localhost:1210/readiness | jq .
 
 # Expected response:
 {
@@ -58,7 +58,7 @@ curl -s http://localhost:9115/readiness | jq .
 ### Step 5: View Metrics
 ```bash
 # Get all 46+ metrics
-curl -s http://localhost:9115/metrics | head -50
+curl -s http://localhost:1210/metrics | head -50
 
 # Sample output:
 # # HELP sftp_exporter_goroutine_count Current number of goroutines
@@ -109,7 +109,7 @@ Alternatively, use environment variables:
 export SFTP_EXPORTER_AUTH_LOG="/var/log/system.log"
 export SFTP_EXPORTER_HOME_BASE="/Users"
 export SFTP_EXPORTER_LOG_LEVEL="INFO"
-export SFTP_EXPORTER_WEB_PORT="9115"
+export SFTP_EXPORTER_WEB_PORT="1210"
 export SFTP_EXPORTER_WEB_BEARER_TOKEN="your-secret-token"
 
 ./bin/advanced-sftp-exporter-v1.4.0-2-gdf0df49.darwin-arm64
@@ -121,16 +121,16 @@ export SFTP_EXPORTER_WEB_BEARER_TOKEN="your-secret-token"
 
 ### 1. Metrics Endpoint
 ```bash
-curl -s http://localhost:9115/metrics | wc -l
+curl -s http://localhost:1210/metrics | wc -l
 # Should show 100+ lines of metrics
 
 # Search for Phase 4 health metrics
-curl -s http://localhost:9115/metrics | grep "sftp_exporter"
+curl -s http://localhost:1210/metrics | grep "sftp_exporter"
 ```
 
 ### 2. Diagnostics Endpoint
 ```bash
-curl -s http://localhost:9115/diagnostics | jq .
+curl -s http://localhost:1210/diagnostics | jq .
 
 # Expected response includes:
 # - uptime_seconds
@@ -145,7 +145,7 @@ curl -s http://localhost:9115/diagnostics | jq .
 ### 3. All 46+ Metrics Are Present
 ```bash
 # Count unique metric families
-curl -s http://localhost:9115/metrics | grep "^# HELP" | wc -l
+curl -s http://localhost:1210/metrics | grep "^# HELP" | wc -l
 # Should be: 46 or more
 ```
 
@@ -186,7 +186,7 @@ global:
 scrape_configs:
   - job_name: 'sftp-exporter'
     static_configs:
-      - targets: ['localhost:9115']
+      - targets: ['localhost:1210']
     metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
@@ -226,7 +226,7 @@ sftp_file_operation_latency_seconds_bucket
 ```bash
 # Wait for service to be ready
 for i in {1..10}; do
-  if curl -s http://localhost:9115/readiness; then
+  if curl -s http://localhost:1210/readiness; then
     echo "✓ Service is ready"
     break
   fi
@@ -238,13 +238,13 @@ done
 ### Continuous Monitoring
 ```bash
 # Monitor health every 5 seconds
-watch -n 5 'curl -s http://localhost:9115/diagnostics | jq "."'
+watch -n 5 'curl -s http://localhost:1210/diagnostics | jq "."'
 ```
 
 ### Error Tracking
 ```bash
 # Get error history
-curl -s http://localhost:9115/diagnostics | jq '.error_history'
+curl -s http://localhost:1210/diagnostics | jq '.error_history'
 
 # Normal response (no errors):
 # {
@@ -257,10 +257,10 @@ curl -s http://localhost:9115/diagnostics | jq '.error_history'
 
 ## Troubleshooting
 
-### Issue: "Port 9115 already in use"
+### Issue: "Port 1210 already in use"
 ```bash
 # Find what's using the port
-lsof -i :9115
+lsof -i :1210
 
 # Kill the process (if needed)
 kill -9 <PID>
@@ -284,10 +284,10 @@ log stream --predicate 'eventMessage contains[c] "sftp"' --info
 ### Issue: "No metrics appearing"
 ```bash
 # Verify metrics endpoint is responding
-curl -v http://localhost:9115/metrics
+curl -v http://localhost:1210/metrics
 
 # Check Health endpoint
-curl -v http://localhost:9115/health
+curl -v http://localhost:1210/health
 
 # If still no metrics, check logs for errors
 # Look for ERROR level messages in terminal output
@@ -296,7 +296,7 @@ curl -v http://localhost:9115/health
 ### Issue: "High goroutine count"
 ```bash
 # Check current goroutine count
-curl -s http://localhost:9115/diagnostics | jq '.goroutine_count'
+curl -s http://localhost:1210/diagnostics | jq '.goroutine_count'
 
 # With Phase 4 optimization:
 # - Idle: 8-12 goroutines
@@ -322,7 +322,7 @@ Cardinality: <5000 series
 ### Load Test (Optional)
 ```bash
 # Generate load with Apache Bench
-ab -n 1000 -c 10 http://localhost:9115/metrics
+ab -n 1000 -c 10 http://localhost:1210/metrics
 
 # Expected result:
 # Requests per second: 100-500

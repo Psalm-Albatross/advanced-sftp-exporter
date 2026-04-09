@@ -2,12 +2,12 @@
 
 # Advanced SFTP Exporter - Health Check Script
 # Phase 4 Deployment Validation
-# Usage: ./health-check.sh [--verbose] [--port 9115]
+# Usage: ./health-check.sh [--verbose] [--port 1210]
 
 set -e
 
 # Configuration
-PORT="${PORT:-9115}"
+PORT="${PORT:-1210}"
 BASE_URL="http://localhost:${PORT}"
 VERBOSE="${VERBOSE:-0}"
 ALL_TESTS_PASSED=true
@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--verbose] [--port 9115]"
+            echo "Usage: $0 [--verbose] [--port 1210]"
             exit 1
             ;;
     esac

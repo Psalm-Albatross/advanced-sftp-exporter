@@ -38,16 +38,16 @@ RUN mkdir -p /var/log && \
 USER exporter
 
 # Expose metrics port
-EXPOSE 9115
+EXPOSE 1210
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:9115/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:1210/health || exit 1
 
 # Default entrypoint
 ENTRYPOINT ["/usr/local/bin/advanced-sftp-exporter"]
 
 # Default parameters (override with environment variables or command-line args)
-CMD ["-web.listen-address=:9115", \
+CMD ["-web.listen-address=:1210", \
      "-auth-log=/var/log/auth.log", \
      "-home-base=/home"]
