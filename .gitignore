@@ -1,2 +1,4 @@
 RELEASE-NOTES.md
 .DS_Store
+bin/*
+bin
